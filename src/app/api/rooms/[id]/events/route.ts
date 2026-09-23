@@ -1,7 +1,10 @@
 import { NextRequest } from "next/server"
 import { db } from "@/lib/db"
 import { ok, notFound, unauthorized, getAuth } from "@/lib/api"
-import { subscribe, listParticipants, listMessages, getTimer, reapStale } from "@/lib/presence"
+import {
+  subscribe, listParticipants, listMessages, getTimer, reapStale,
+  listReactions, listWhiteboardStrokes,
+} from "@/lib/presence"
 
 // GET /api/rooms/[id]/events  (Server-Sent Events)
 // Streams presence + message + timer events to the room client.
@@ -31,7 +34,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       send({ type: "presence", participants: listParticipants(id) })
       send({ type: "history", messages: listMessages(id, 50) })
       send({ type: "timer", timer: getTimer(id) })
-      const { listReactions, listWhiteboardStrokes } = await import("@/lib/presence")
       send({ type: "reactions", reactions: listReactions(id) })
       send({ type: "whiteboard_snapshot", strokes: listWhiteboardStrokes(id) })
 
