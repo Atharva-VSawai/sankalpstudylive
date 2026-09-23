@@ -378,7 +378,6 @@ export function PricingView() {
       <div className="mt-8 text-center text-xs text-muted-foreground">
         <p>Paid plans provide <strong>unlimited live study-room access</strong> during their active period.</p>
         <p className="mt-1">Solo study, Pomodoro, communities, and browsing rooms are always free.</p>
-        <p className="mt-2">Payments processed securely by Razorpay. Sandbox test mode.</p>
       </div>
     </div>
   )

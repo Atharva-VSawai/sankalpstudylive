@@ -448,7 +448,7 @@ function SettingsSection() {
       <h1 className="text-2xl font-bold flex items-center gap-2"><Settings className="size-6" /> Settings</h1>
       <Card><CardContent className="p-4 space-y-3">
         <div className="text-sm font-medium">Platform Configuration</div>
-        <Row label="Environment" value={process.env.NODE_ENV === "production" ? "PRODUCTION" : "SANDBOX"} />
+        <Row label="Environment" value={process.env.NODE_ENV === "production" ? "Production" : "Development"} />
         <Row label="Version" value="1.0.0" />
       </CardContent></Card>
       <Card><CardContent className="p-4 space-y-3">
@@ -549,7 +549,7 @@ function AnalyticsSection() {
           {(s.communities?.mostActive ?? []).map((c: any) => <div key={c.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-accent"><span className="flex items-center gap-2"><span className="size-4 rounded" style={{ background: c.color }} /><span className="text-sm">{c.name}</span></span><span className="text-xs text-muted-foreground">{c.memberCount} members</span></div>)}
           {(!s.communities?.mostActive || s.communities.mostActive.length === 0) && <p className="text-muted-foreground text-sm text-center py-4">No data available.</p>}
         </div></CardContent></Card>
-      <p className="text-xs text-muted-foreground">Sandbox: analytics data comes from the local SQLite database. Production uses PostgreSQL with PostHog for funnel analytics.</p>
+      <p className="text-xs text-muted-foreground">Analytics data comes from the database. Production uses PostgreSQL with PostHog for funnel analytics.</p>
     </div>
   )
 }

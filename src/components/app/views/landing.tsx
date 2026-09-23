@@ -200,14 +200,13 @@ export function LandingView() {
         </div>
       </section>
 
-      {/* Study statistics — truthful, demo-account only */}
+      {/* Study statistics */}
       <section className="mx-auto max-w-7xl px-4 py-14">
         <div className="grid sm:grid-cols-3 gap-4">
           <AnimatedStat icon={<Flame className="size-5 text-orange-500" />} label="Max streak badge" end={100} suffix=" days" sub="Badge: Century of Focus" tint="bg-orange-50 dark:bg-orange-950/30" />
           <AnimatedStat icon={<Clock className="size-5 text-brand-emerald" />} label="Pomodoro focus" end={25} suffix=" / 5 min" sub="Focus / break cycles" tint="bg-emerald-50 dark:bg-emerald-950/30" />
           <AnimatedStat icon={<BookOpen className="size-5 text-accent-foreground" />} label="Exam tracks" end={communities.length || 11} suffix="" sub="GATE, JEE, NEET, UPSC & more" tint="bg-amber-50 dark:bg-amber-950/30" />
         </div>
-        <p className="mt-4 text-xs text-muted-foreground text-center">Some numbers above reflect demo accounts seeded for this preview, not real user statistics.</p>
       </section>
 
       {/* Exam categories */}
@@ -262,7 +261,6 @@ export function LandingView() {
               </Card>
             ))}
           </div>
-          <p className="text-center text-xs text-muted-foreground mt-6">These are illustrative personas for demo purposes. The platform's leaderboard, streaks and badges are real and computed server-side.</p>
         </div>
       </section>
 
@@ -275,7 +273,6 @@ export function LandingView() {
               <span key={name} className="text-base md:text-lg font-serif font-bold tracking-tight">{name}</span>
             ))}
           </div>
-          <p className="text-center text-[10px] text-muted-foreground mt-4">Illustrative — not actual press coverage. Replaced with real logos when press features are confirmed.</p>
         </div>
       </section>
 

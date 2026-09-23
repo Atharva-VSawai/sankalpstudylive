@@ -223,7 +223,7 @@ function DangerZoneCard() {
   const [password, setPassword] = useState("")
   const [confirmText, setConfirmText] = useState("")
   const [busy, setBusy] = useState(false)
-  const hasPassword = Boolean(me?.email) // all sandbox accounts have passwords; OAuth-only users skip
+  const hasPassword = Boolean(me?.email) // OAuth-only users skip password confirmation
 
   const del = useMutation({
     mutationFn: async () => {

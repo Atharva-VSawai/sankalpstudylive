@@ -34,9 +34,6 @@ export function Footer() {
         </div>
         <div className="mt-8 pt-6 border-t flex flex-col sm:flex-row gap-3 items-center justify-between">
           <p className="text-xs text-muted-foreground">© {new Date().getFullYear()} Sankalp. Made for India's learners.</p>
-          <p className="text-xs text-muted-foreground">
-            Demo data only. Not real user statistics.
-          </p>
         </div>
       </div>
     </footer>

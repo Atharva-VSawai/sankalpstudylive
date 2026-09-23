@@ -10,8 +10,7 @@ import { EXAM_META } from "@/components/app/brand"
 import { ArrowRight, Users, Clock, BookOpen, Target } from "lucide-react"
 
 // Exam-specific spotlight cards on the landing — each shows the exam's community
-// with a tailored CTA. Clearly uses demo data (no fabricated user counts beyond
-// what the seeded communities actually have).
+// with a tailored CTA. Uses real data from the API.
 export function ExamSpotlights() {
   const { navigate } = useRouter()
   const { me } = useAuth()

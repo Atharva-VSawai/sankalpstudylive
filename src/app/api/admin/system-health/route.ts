@@ -14,14 +14,14 @@ export async function GET(req: NextRequest) {
   const env = process.env.NODE_ENV || "development"
 
   return ok({
-    environment: env === "production" ? "PRODUCTION" : "SANDBOX",
-    database: { status: dbStatus, type: "SQLite (sandbox)" },
-    redis: { status: "not configured", note: "Sandbox uses in-memory presence" },
-    livekit: { status: "simulated", note: "Sandbox uses simulated LiveKit tokens" },
-    payments: { status: "simulated", note: "Sandbox simulates payment confirmation" },
-    analytics: { status: "not configured", note: "PostHog is a no-op stub" },
-    email: { status: "not configured", note: "Resend API key not set" },
-    sentry: { status: "not configured", note: "Sentry DSN not set" },
+    environment: env === "production" ? "Production" : "Development",
+    database: { status: dbStatus, type: "PostgreSQL (Supabase)" },
+    redis: { status: process.env.REDIS_URL ? "Configured" : "Not configured", note: process.env.REDIS_URL ? "" : "Using in-memory presence (configure Redis for production)" },
+    livekit: { status: process.env.LIVEKIT_API_KEY ? "Configured" : "Not configured", note: process.env.LIVEKIT_API_KEY ? "" : "Configure LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET" },
+    payments: { status: process.env.RAZORPAY_KEY_ID ? "Configured" : "Not configured", note: process.env.RAZORPAY_KEY_ID ? "" : "Configure Razorpay credentials" },
+    analytics: { status: process.env.POSTHOG_KEY ? "Configured" : "Not configured", note: process.env.POSTHOG_KEY ? "" : "PostHog key not set" },
+    email: { status: process.env.RESEND_API_KEY ? "Configured" : "Not configured", note: process.env.RESEND_API_KEY ? "" : "Resend API key not set" },
+    sentry: { status: process.env.SENTRY_DSN ? "Configured" : "Not configured", note: process.env.SENTRY_DSN ? "" : "Sentry DSN not set" },
     envVars: {
       DATABASE_URL: Boolean(process.env.DATABASE_URL) ? "Configured" : "Not configured",
       SESSION_SECRET: Boolean(process.env.SESSION_SECRET) ? "Configured" : "Not configured (using default)",
