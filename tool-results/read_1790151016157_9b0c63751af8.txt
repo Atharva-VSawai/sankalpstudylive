@@ -1,0 +1,1809 @@
+     1→     1→SANKALP — COMPLETE ADMIN CONSOLE / ADMIN PANEL
+     2→     2→
+     3→     3→IMPORTANT:
+     4→     4→This is an incremental upgrade to the EXISTING Sankalp application.
+     5→     5→
+     6→     6→DO NOT rebuild the application.
+     7→     7→DO NOT create a separate backend.
+     8→     8→DO NOT create a separate database.
+     9→     9→DO NOT rewrite unrelated user-facing features.
+    10→    10→
+    11→    11→First inspect the existing:
+    12→    12→- Admin view
+    13→    13→- RBAC/auth implementation
+    14→    14→- User model
+    15→    15→- Profile model
+    16→    16→- Community model
+    17→    17→- CommunityMember model
+    18→    18→- Room model
+    19→    19→- RoomMember model
+    20→    20→- StudySession model
+    21→    21→- Subscription model
+    22→    22→- Payment model
+    23→    23→- Report model
+    24→    24→- Notification model
+    25→    25→- Referral model
+    26→    26→- AuditLog model
+    27→    27→- existing /api/admin/* routes
+    28→    28→- existing docs/api.md
+    29→    29→- existing docs/mobile-contract.md
+    30→    30→
+    31→    31→The existing project already has an Admin view with:
+    32→    32→1. Dashboard
+    33→    33→2. Users
+    34→    34→3. Communities
+    35→    35→4. Rooms
+    36→    36→5. Reports
+    37→    37→6. Analytics
+    38→    38→
+    39→    39→Expand this into a production-grade Sankalp Admin Console.
+    40→    40→
+    41→    41→The admin console must be accessible ONLY to authorized admin users through existing RBAC.
+    42→    42→
+    43→    43→Do not expose admin APIs or admin data to normal users.
+    44→    44→
+    45→    45→
+    46→    46→==================================================
+    47→    47→1. ADMIN CONSOLE STRUCTURE
+    48→    48→==================================================
+    49→    49→
+    50→    50→Create a clean admin navigation:
+    51→    51→
+    52→    52→Overview
+    53→    53→Users
+    54→    54→Communities
+    55→    55→Rooms
+    56→    56→Moderation
+    57→    57→Reports
+    58→    58→Subscriptions
+    59→    59→Payments
+    60→    60→Referrals
+    61→    61→Study Analytics
+    62→    62→Engagement
+    63→    63→Content
+    64→    64→Notifications
+    65→    65→Badges & XP
+    66→    66→System Health
+    67→    67→Audit Logs
+    68→    68→Settings
+    69→    69→
+    70→    70→Keep the existing 6 sections and expand them.
+    71→    71→
+    72→    72→Desktop:
+    73→    73→- Sidebar navigation
+    74→    74→- Main content area
+    75→    75→- Search
+    76→    76→- Notifications/admin alerts
+    77→    77→- Admin profile/menu
+    78→    78→
+    79→    79→Mobile:
+    80→    80→- Responsive admin navigation
+    81→    81→- Do not expose an unusable desktop-only table
+    82→    82→- Tables should become cards or horizontally scrollable where necessary
+    83→    83→
+    84→    84→
+    85→    85→==================================================
+    86→    86→2. ADMIN DASHBOARD / OVERVIEW
+    87→    87→==================================================
+    88→    88→
+    89→    89→Create a useful real-time-ish operational dashboard.
+    90→    90→
+    91→    91→Show:
+    92→    92→
+    93→    93→USERS
+    94→    94→- Total registered users
+    95→    95→- New users today
+    96→    96→- New users this week
+    97→    97→- New users this month
+    98→    98→- Active users today
+    99→    99→- Active users this week
+   100→   100→- Currently online users if real presence data exists
+   101→   101→
+   102→   102→STUDY
+   103→   103→- Total study minutes
+   104→   104→- Study minutes today
+   105→   105→- Study minutes this week
+   106→   106→- Study sessions today
+   107→   107→- Average study-session duration
+   108→   108→- Active study rooms
+   109→   109→- Students currently studying
+   110→   110→
+   111→   111→ROOMS
+   112→   112→- Total rooms
+   113→   113→- Active rooms
+   114→   114→- Default/system rooms
+   115→   115→- Most active rooms
+   116→   116→- Current participant count
+   117→   117→
+   118→   118→COMMUNITIES
+   119→   119→- Total communities
+   120→   120→- Community members
+   121→   121→- Most active communities
+   122→   122→- New community joins
+   123→   123→
+   124→   124→BUSINESS
+   125→   125→- Active subscriptions
+   126→   126→- New subscriptions
+   127→   127→- 24-hour passes
+   128→   128→- Monthly subscriptions
+   129→   129→- 6-month subscriptions
+   130→   130→- Yearly subscriptions
+   131→   131→- Revenue
+   132→   132→- Failed payments
+   133→   133→- Expired subscriptions
+   134→   134→
+   135→   135→MODERATION
+   136→   136→- Open reports
+   137→   137→- Pending reports
+   138→   138→- Reports resolved today
+   139→   139→- Block activity
+   140→   140→
+   141→   141→REFERRALS
+   142→   142→- Total referrals
+   143→   143→- Successful referrals
+   144→   144→- Referral conversion
+   145→   145→
+   146→   146→Show trend comparisons where actual historical data exists.
+   147→   147→
+   148→   148→DO NOT fabricate numbers.
+   149→   149→
+   150→   150→If analytics data is unavailable, show:
+   151→   151→"No data available"
+   152→   152→
+   153→   153→rather than fake values.
+   154→   154→
+   155→   155→
+   156→   156→==================================================
+   157→   157→3. ADMIN GLOBAL SEARCH
+   158→   158→==================================================
+   159→   159→
+   160→   160→Add an admin-wide search.
+   161→   161→
+   162→   162→Admin should be able to search:
+   163→   163→
+   164→   164→Users:
+   165→   165→- Name
+   166→   166→- Username
+   167→   167→- Email
+   168→   168→- User ID
+   169→   169→
+   170→   170→Communities:
+   171→   171→- Name
+   172→   172→- Slug
+   173→   173→- ID
+   174→   174→
+   175→   175→Rooms:
+   176→   176→- Name
+   177→   177→- ID
+   178→   178→
+   179→   179→Reports:
+   180→   180→- Report ID
+   181→   181→
+   182→   182→Payments:
+   183→   183→- Payment ID
+   184→   184→- Order/reference ID
+   185→   185→
+   186→   186→Search results should indicate entity type.
+   187→   187→
+   188→   188→Example:
+   189→   189→
+   190→   190→Search "aarav"
+   191→   191→
+   192→   192→Users
+   193→   193→→ Aarav Sharma
+   194→   194→→ @aarav
+   195→   195→
+   196→   196→Rooms
+   197→   197→→ GATE Focus Room
+   198→   198→
+   199→   199→Do not expose sensitive information unnecessarily.
+   200→   200→
+   201→   201→
+   202→   202→==================================================
+   203→   203→4. USER MANAGEMENT
+   204→   204→==================================================
+   205→   205→
+   206→   206→Create a complete Users section.
+   207→   207→
+   208→   208→Table columns:
+   209→   209→
+   210→   210→- Avatar
+   211→   211→- Name
+   212→   212→- Username
+   213→   213→- Email
+   214→   214→- Role
+   215→   215→- Account status
+   216→   216→- Community count
+   217→   217→- Study time
+   218→   218→- Streak
+   219→   219→- Subscription
+   220→   220→- Created date
+   221→   221→- Last active
+   222→   222→
+   223→   223→Filters:
+   224→   224→
+   225→   225→- All
+   226→   226→- Active
+   227→   227→- Suspended
+   228→   228→- Banned
+   229→   229→- Admin
+   230→   230→- Moderator
+   231→   231→- Free
+   232→   232→- Paid
+   233→   233→- Recently joined
+   234→   234→- Recently active
+   235→   235→- Inactive
+   236→   236→
+   237→   237→Search and pagination are required.
+   238→   238→
+   239→   239→Do NOT load thousands of users at once.
+   240→   240→
+   241→   241→Use server-side pagination.
+   242→   242→
+   243→   243→
+   244→   244→==================================================
+   245→   245→5. USER DETAIL PAGE
+   246→   246→==================================================
+   247→   247→
+   248→   248→Clicking a user should open a detailed admin user view.
+   249→   249→
+   250→   250→Sections:
+   251→   251→
+   252→   252→PROFILE
+   253→   253→- Name
+   254→   254→- Username
+   255→   255→- Email
+   256→   256→- Profile
+   257→   257→- Avatar
+   258→   258→- Bio
+   259→   259→- Joined date
+   260→   260→- Last active
+   261→   261→- Account status
+   262→   262→
+   263→   263→STUDY
+   264→   264→- Total study time
+   265→   265→- Study sessions
+   266→   266→- Current streak
+   267→   267→- Longest streak
+   268→   268→- Daily goal
+   269→   269→- Weekly study time
+   270→   270→- Monthly study time
+   271→   271→- Recent sessions
+   272→   272→
+   273→   273→COMMUNITIES
+   274→   274→- Joined communities
+   275→   275→- Join dates
+   276→   276→- Membership status
+   277→   277→
+   278→   278→ROOMS
+   279→   279→- Recent rooms joined
+   280→   280→- Recent room activity
+   281→   281→
+   282→   282→SOCIAL
+   283→   283→- Friends count
+   284→   284→- Blocks
+   285→   285→- Reports involving the user
+   286→   286→
+   287→   287→SUBSCRIPTION
+   288→   288→- Current plan
+   289→   289→- Status
+   290→   290→- Start date
+   291→   291→- Expiry date
+   292→   292→- Renewal information
+   293→   293→- Payment history
+   294→   294→
+   295→   295→REFERRALS
+   296→   296→- Referral code
+   297→   297→- Successful referrals
+   298→   298→- Referred users
+   299→   299→
+   300→   300→BADGES
+   301→   301→- Earned badges
+   302→   302→- Locked badges
+   303→   303→
+   304→   304→ACCOUNT
+   305→   305→- Role
+   306→   306→- Status
+   307→   307→- User ID
+   308→   308→- Created date
+   309→   309→- Last login
+   310→   310→
+   311→   311→Do not expose passwords, tokens, session secrets, service keys, or other authentication secrets.
+   312→   312→
+   313→   313→
+   314→   314→==================================================
+   315→   315→6. USER ADMIN ACTIONS
+   316→   316→==================================================
+   317→   317→
+   318→   318→Depending on admin permissions, provide:
+   319→   319→
+   320→   320→- Suspend user
+   321→   321→- Unsuspend user
+   322→   322→- Ban user
+   323→   323→- Unban user
+   324→   324→- Change role
+   325→   325→- Remove moderator/admin role where authorized
+   326→   326→- Verify/unverify account if the existing model supports it
+   327→   327→- Force logout / invalidate sessions
+   328→   328→- Reset account security state where supported
+   329→   329→- Delete account
+   330→   330→
+   331→   331→IMPORTANT:
+   332→   332→Destructive actions require confirmation.
+   333→   333→
+   334→   334→For example:
+   335→   335→
+   336→   336→"Ban Aarav?"
+   337→   337→
+   338→   338→Reason:
+   339→   339→[________________]
+   340→   340→
+   341→   341→[Cancel] [Confirm Ban]
+   342→   342→
+   343→   343→Every administrative action must create an AuditLog entry.
+   344→   344→
+   345→   345→
+   346→   346→==================================================
+   347→   347→7. ACCOUNT DELETION SAFETY
+   348→   348→==================================================
+   349→   349→
+   350→   350→For destructive user deletion:
+   351→   351→
+   352→   352→Require explicit confirmation.
+   353→   353→
+   354→   354→Show:
+   355→   355→
+   356→   356→User:
+   357→   357→Email:
+   358→   358→Username:
+   359→   359→
+   360→   360→"This action permanently deletes the account and associated user data according to the configured retention policy."
+   361→   361→
+   362→   362→Require typing a confirmation phrase for permanent deletion.
+   363→   363→
+   364→   364→Do not accidentally delete an admin account.
+   365→   365→
+   366→   366→Protect the currently logged-in admin from self-deletion.
+   367→   367→
+   368→   368→
+   369→   369→==================================================
+   370→   370→8. VIEW-AS / USER TROUBLESHOOTING
+   371→   371→==================================================
+   372→   372→
+   373→   373→Add an optional:
+   374→   374→
+   375→   375→"View Profile"
+   376→   376→
+   377→   377→or:
+   378→   378→
+   379→   379→"View as User"
+   380→   380→
+   381→   381→feature for troubleshooting.
+   382→   382→
+   383→   383→IMPORTANT:
+   384→   384→Do NOT silently impersonate users.
+   385→   385→
+   386→   386→Do not generate or expose their password/session token.
+   387→   387→
+   388→   388→If a true impersonation mechanism is implemented, it must:
+   389→   389→- Require explicit admin confirmation
+   390→   390→- Be time-limited
+   391→   391→- Be fully audited
+   392→   392→- Clearly indicate "Admin viewing as user"
+   393→   393→- Never expose the user's credentials
+   394→   394→
+   395→   395→Prefer a read-only "View User Experience" mode unless impersonation is genuinely required.
+   396→   396→
+   397→   397→
+   398→   398→==================================================
+   399→   399→9. ROLE MANAGEMENT
+   400→   400→==================================================
+   401→   401→
+   402→   402→Support existing RBAC:
+   403→   403→
+   404→   404→USER
+   405→   405→MODERATOR
+   406→   406→ADMIN
+   407→   407→
+   408→   408→Do not create unnecessary roles unless the existing architecture requires them.
+   409→   409→
+   410→   410→Show permissions clearly.
+   411→   411→
+   412→   412→Example:
+   413→   413→
+   414→   414→USER
+   415→   415→- Normal application access
+   416→   416→
+   417→   417→MODERATOR
+   418→   418→- Moderation
+   419→   419→- Reports
+   420→   420→- User safety actions permitted by policy
+   421→   421→
+   422→   422→ADMIN
+   423→   423→- Full administrative management
+   424→   424→
+   425→   425→Role changes must be audited.
+   426→   426→
+   427→   427→Do not allow normal users to change their own role.
+   428→   428→
+   429→   429→
+   430→   430→==================================================
+   431→   431→10. COMMUNITY MANAGEMENT
+   432→   432→==================================================
+   433→   433→
+   434→   434→Admin should manage all communities.
+   435→   435→
+   436→   436→Table:
+   437→   437→
+   438→   438→- Community
+   439→   439→- Slug
+   440→   440→- Members
+   441→   441→- Active members
+   442→   442→- Rooms
+   443→   443→- Status
+   444→   444→- Created
+   445→   445→- Featured
+   446→   446→
+   447→   447→Actions:
+   448→   448→
+   449→   449→- Create
+   450→   450→- Edit
+   451→   451→- Archive
+   452→   452→- Restore
+   453→   453→- Feature/unfeature
+   454→   454→- View members
+   455→   455→- View rooms
+   456→   456→
+   457→   457→Community editing:
+   458→   458→
+   459→   459→- Name
+   460→   460→- Description
+   461→   461→- Slug
+   462→   462→- Icon
+   463→   463→- Cover
+   464→   464→- Exam category
+   465→   465→- Description
+   466→   466→- Visibility
+   467→   467→- Status
+   468→   468→
+   469→   469→Do not break the existing seeded communities:
+   470→   470→
+   471→   471→GATE
+   472→   472→JEE
+   473→   473→NEET
+   474→   474→UPSC
+   475→   475→CAT
+   476→   476→SSC
+   477→   477→Banking
+   478→   478→MPSC
+   479→   479→Placements
+   480→   480→DSA
+   481→   481→General Study
+   482→   482→
+   483→   483→
+   484→   484→==================================================
+   485→   485→11. DEFAULT ROOM MANAGEMENT
+   486→   486→==================================================
+   487→   487→
+   488→   488→Admin should manage system/default rooms.
+   489→   489→
+   490→   490→Show:
+   491→   491→
+   492→   492→- Room name
+   493→   493→- Community
+   494→   494→- Type
+   495→   495→- Status
+   496→   496→- Current participants
+   497→   497→- Total sessions
+   498→   498→- Created date
+   499→   499→
+   500→   500→Default rooms include:
+   501→   501→
+   502→   502→GATE Focus Room
+   503→   503→JEE Focus Room
+   504→   504→NEET Focus Room
+   505→   505→UPSC Focus Room
+   506→   506→CAT Focus Room
+   507→   507→SSC Focus Room
+   508→   508→Banking Focus Room
+   509→   509→MPSC Focus Room
+   510→   510→Placement Focus Room
+   511→   511→DSA Focus Room
+   512→   512→General Focus Room
+   513→   513→
+   514→   514→Allow admin to:
+   515→   515→
+   516→   516→- Edit room metadata
+   517→   517→- Enable/disable room
+   518→   518→- Archive room
+   519→   519→- Restore room
+   520→   520→- View participants
+   521→   521→- View activity
+   522→   522→
+   523→   523→Do NOT accidentally delete system rooms.
+   524→   524→
+   525→   525→Require confirmation for destructive room actions.
+   526→   526→
+   527→   527→
+   528→   528→==================================================
+   529→   529→12. ROOM MODERATION
+   530→   530→==================================================
+   531→   531→
+   532→   532→Admin should be able to inspect:
+   533→   533→
+   534→   534→- Current participants
+   535→   535→- Room owner/host where applicable
+   536→   536→- Active study sessions
+   537→   537→- Recent activity
+   538→   538→- Reports
+   539→   539→- Room status
+   540→   540→
+   541→   541→Admin/moderator actions where authorized:
+   542→   542→
+   543→   543→- Remove participant from room
+   544→   544→- Temporarily prevent participant from rejoining
+   545→   545→- Disable room
+   546→   546→- Re-enable room
+   547→   547→
+   548→   548→All moderation actions must be audited.
+   549→   549→
+   550→   550→Do not expose private authentication data.
+   551→   551→
+   552→   552→
+   553→   553→==================================================
+   554→   554→13. MODERATION CENTER
+   555→   555→==================================================
+   556→   556→
+   557→   557→Create a dedicated Moderation section.
+   558→   558→
+   559→   559→Show:
+   560→   560→
+   561→   561→- Open reports
+   562→   562→- Pending reports
+   563→   563→- Resolved reports
+   564→   564→- Dismissed reports
+   565→   565→- Recent blocks
+   566→   566→- Recently suspended users
+   567→   567→- Recently banned users
+   568→   568→
+   569→   569→Filters:
+   570→   570→
+   571→   571→- Report type
+   572→   572→- Status
+   573→   573→- Date
+   574→   574→- Reporter
+   575→   575→- Reported user
+   576→   576→- Room
+   577→   577→- Community
+   578→   578→
+   579→   579→Sort by:
+   580→   580→
+   581→   581→- Newest
+   582→   582→- Oldest
+   583→   583→- Status
+   584→   584→
+   585→   585→
+   586→   586→==================================================
+   587→   587→14. REPORT MANAGEMENT
+   588→   588→==================================================
+   589→   589→
+   590→   590→Existing Report functionality should be fully manageable.
+   591→   591→
+   592→   592→Report table:
+   593→   593→
+   594→   594→- Report ID
+   595→   595→- Reporter
+   596→   596→- Reported user
+   597→   597→- Room/community
+   598→   598→- Reason
+   599→   599→- Status
+   600→   600→- Created
+   601→   601→- Assigned moderator
+   602→   602→- Resolved date
+   603→   603→
+   604→   604→Report detail:
+   605→   605→
+   606→   606→- Full report reason
+   607→   607→- Reporter
+   608→   608→- Reported user
+   609→   609→- Relevant room
+   610→   610→- Relevant community
+   611→   611→- Timestamp
+   612→   612→- Previous reports involving the same account where appropriate
+   613→   613→- Moderation history
+   614→   614→
+   615→   615→Actions:
+   616→   616→
+   617→   617→- Assign
+   618→   618→- Mark reviewing
+   619→   619→- Resolve
+   620→   620→- Dismiss
+   621→   621→- Escalate
+   622→   622→- Add internal moderation note
+   623→   623→
+   624→   624→Require a resolution reason when closing a report.
+   625→   625→
+   626→   626→Do not expose internal moderation notes to normal users.
+   627→   627→
+   628→   628→
+   629→   629→==================================================
+   630→   630→15. REPORT SAFETY
+   631→   631→==================================================
+   632→   632→
+   633→   633→Do not allow users to manipulate:
+   634→   634→
+   635→   635→- report status
+   636→   636→- moderation decision
+   637→   637→- resolution
+   638→   638→- moderator notes
+   639→   639→
+   640→   640→from the client.
+   641→   641→
+   642→   642→The server must enforce moderation permissions.
+   643→   643→
+   644→   644→Every moderation decision must create an AuditLog entry.
+   645→   645→
+   646→   646→
+   647→   647→==================================================
+   648→   648→16. SUBSCRIPTION MANAGEMENT
+   649→   649→==================================================
+   650→   650→
+   651→   651→Create a Subscriptions section.
+   652→   652→
+   653→   653→Current plans:
+   654→   654→
+   655→   655→FREE
+   656→   656→₹0
+   657→   657→
+   658→   658→FOCUS PASS
+   659→   659→₹14 / 24 hours
+   660→   660→
+   661→   661→MONTHLY
+   662→   662→₹179 / month
+   663→   663→
+   664→   664→6 MONTHS
+   665→   665→₹699
+   666→   666→
+   667→   667→YEARLY
+   668→   668→₹999
+   669→   669→
+   670→   670→Show:
+   671→   671→
+   672→   672→- User
+   673→   673→- Plan
+   674→   674→- Status
+   675→   675→- Start date
+   676→   676→- Expiry date
+   677→   677→- Renewal status
+   678→   678→- Payment reference
+   679→   679→- Created date
+   680→   680→
+   681→   681→Filters:
+   682→   682→
+   683→   683→- Free
+   684→   684→- Active
+   685→   685→- Expired
+   686→   686→- Cancelled
+   687→   687→- Pending
+   688→   688→- Failed
+   689→   689→
+   690→   690→Do not change pricing from the admin UI unless a proper pricing-management system is explicitly implemented.
+   691→   691→
+   692→   692→The existing pricing should remain the source of truth.
+   693→   693→
+   694→   694→
+   695→   695→==================================================
+   696→   696→17. PAYMENT MANAGEMENT
+   697→   697→==================================================
+   698→   698→
+   699→   699→Create a Payments section.
+   700→   700→
+   701→   701→Show:
+   702→   702→
+   703→   703→- Payment ID
+   704→   704→- User
+   705→   705→- Plan
+   706→   706→- Amount
+   707→   707→- Currency
+   708→   708→- Status
+   709→   709→- Provider reference
+   710→   710→- Created date
+   711→   711→
+   712→   712→Statuses:
+   713→   713→
+   714→   714→- Pending
+   715→   715→- Successful
+   716→   716→- Failed
+   717→   717→- Refunded
+   718→   718→- Cancelled
+   719→   719→
+   720→   720→Filters:
+   721→   721→
+   722→   722→- Date
+   723→   723→- Plan
+   724→   724→- Status
+   725→   725→- User
+   726→   726→
+   727→   727→Admin can view payment details.
+   728→   728→
+   729→   729→Do NOT allow admins to manually mark a payment successful merely to bypass payment verification.
+   730→   730→
+   731→   731→Payment status must come from the payment provider/webhook in production.
+   732→   732→
+   733→   733→Sandbox behavior can remain simulated but must be clearly labelled.
+   734→   734→
+   735→   735→
+   736→   736→==================================================
+   737→   737→18. REFUND / PAYMENT ACTIONS
+   738→   738→==================================================
+   739→   739→
+   740→   740→If refund functionality is implemented:
+   741→   741→
+   742→   742→- Require confirmation
+   743→   743→- Require reason
+   744→   744→- Record admin
+   745→   745→- Record timestamp
+   746→   746→- Create AuditLog
+   747→   747→
+   748→   748→Never expose payment secrets.
+   749→   749→
+   750→   750→Do not store raw card information.
+   751→   751→
+   752→   752→
+   753→   753→==================================================
+   754→   754→19. STUDY ANALYTICS
+   755→   755→==================================================
+   756→   756→
+   757→   757→Create a Study Analytics dashboard.
+   758→   758→
+   759→   759→Metrics:
+   760→   760→
+   761→   761→- Total study minutes
+   762→   762→- Daily study minutes
+   763→   763→- Weekly study minutes
+   764→   764→- Monthly study minutes
+   765→   765→- Study sessions
+   766→   766→- Average session length
+   767→   767→- Median session length where available
+   768→   768→- Active study users
+   769→   769→- Focus sessions completed
+   770→   770→- Pomodoro sessions
+   771→   771→- Breaks
+   772→   772→- Streak distribution
+   773→   773→- Daily goal completion
+   774→   774→
+   775→   775→Charts:
+   776→   776→
+   777→   777→- Study minutes over time
+   778→   778→- Active students over time
+   779→   779→- Sessions over time
+   780→   780→- Average session duration
+   781→   781→- Community study activity
+   782→   782→- Exam/community activity
+   783→   783→
+   784→   784→Date filters:
+   785→   785→
+   786→   786→Today
+   787→   787→7 days
+   788→   788→30 days
+   789→   789→90 days
+   790→   790→Custom
+   791→   791→
+   792→   792→
+   793→   793→==================================================
+   794→   794→20. COMMUNITY ANALYTICS
+   795→   795→==================================================
+   796→   796→
+   797→   797→For every community show:
+   798→   798→
+   799→   799→- Members
+   800→   800→- New members
+   801→   801→- Active members
+   802→   802→- Study minutes
+   803→   803→- Study sessions
+   804→   804→- Active rooms
+   805→   805→- Room participation
+   806→   806→- Average session duration
+   807→   807→- Retention where data supports it
+   808→   808→
+   809→   809→Example:
+   810→   810→
+   811→   811→GATE
+   812→   812→Members: ...
+   813→   813→Active: ...
+   814→   814→Study minutes: ...
+   815→   815→Sessions: ...
+   816→   816→
+   817→   817→Do not invent analytics.
+   818→   818→
+   819→   819→
+   820→   820→==================================================
+   821→   821→21. ROOM ANALYTICS
+   822→   822→==================================================
+   823→   823→
+   824→   824→For each room:
+   825→   825→
+   826→   826→- Total joins
+   827→   827→- Unique participants
+   828→   828→- Study minutes
+   829→   829→- Average session length
+   830→   830→- Peak concurrent participants
+   831→   831→- Sessions completed
+   832→   832→- Room activity over time
+   833→   833→
+   834→   834→For default rooms, show comparisons between rooms without assigning arbitrary ratings.
+   835→   835→
+   836→   836→
+   837→   837→==================================================
+   838→   838→22. USER ENGAGEMENT ANALYTICS
+   839→   839→==================================================
+   840→   840→
+   841→   841→Show:
+   842→   842→
+   843→   843→- DAU
+   844→   844→- WAU
+   845→   845→- MAU
+   846→   846→- New users
+   847→   847→- Returning users
+   848→   848→- First study session completion
+   849→   849→- Users who never studied
+   850→   850→- Users returning after first session
+   851→   851→- Streak retention
+   852→   852→- Pomodoro adoption
+   853→   853→- Room participation
+   854→   854→
+   855→   855→Use actual event/data sources.
+   856→   856→
+   857→   857→If PostHog is currently a no-op in the sandbox, clearly label analytics as sandbox data / unavailable rather than pretending it is production analytics.
+   858→   858→
+   859→   859→
+   860→   860→==================================================
+   861→   861→23. FUNNEL ANALYTICS
+   862→   862→==================================================
+   863→   863→
+   864→   864→Track the product funnel:
+   865→   865→
+   866→   866→Landing
+   867→   867→↓
+   868→   868→Signup
+   869→   869→↓
+   870→   870→Onboarding completed
+   871→   871→↓
+   872→   872→Community joined
+   873→   873→↓
+   874→   874→Room joined
+   875→   875→↓
+   876→   876→First study session started
+   877→   877→↓
+   878→   878→First study session completed
+   879→   879→↓
+   880→   880→Returned to study
+   881→   881→↓
+   882→   882→Paid subscription
+   883→   883→
+   884→   884→Show conversion counts and percentages only where the underlying events exist.
+   885→   885→
+   886→   886→Do not fabricate missing events.
+   887→   887→
+   888→   888→
+   889→   889→==================================================
+   890→   890→24. BADGES & XP MANAGEMENT
+   891→   891→==================================================
+   892→   892→
+   893→   893→Create:
+   894→   894→
+   895→   895→Badges & XP
+   896→   896→
+   897→   897→Admin can view:
+   898→   898→
+   899→   899→- All badges
+   900→   900→- Badge description
+   901→   901→- Unlock condition
+   902→   902→- Users who earned badge
+   903→   903→- Badge earning frequency
+   904→   904→
+   905→   905→Existing seeded badges should remain intact.
+   906→   906→
+   907→   907→If badge configuration is editable:
+   908→   908→
+   909→   909→- Require confirmation
+   910→   910→- Audit changes
+   911→   911→
+   912→   912→For XP:
+   913→   913→
+   914→   914→Admin should be able to inspect XP calculations and user history.
+   915→   915→
+   916→   916→Do NOT provide a casual "Give 10,000 XP" button.
+   917→   917→
+   918→   918→If manual XP adjustment is required for support:
+   919→   919→
+   920→   920→- Require explicit reason
+   921→   921→- Require amount
+   922→   922→- Audit admin
+   923→   923→- Audit timestamp
+   924→   924→- Store before/after values
+   925→   925→
+   926→   926→
+   927→   927→==================================================
+   928→   928→25. LEADERBOARD MANAGEMENT
+   929→   929→==================================================
+   930→   930→
+   931→   931→Admin can inspect:
+   932→   932→
+   933→   933→- Global leaderboard
+   934→   934→- Community leaderboards
+   935→   935→- Friends leaderboard
+   936→   936→- Daily
+   937→   937→- Weekly
+   938→   938→- Monthly
+   939→   939→- All-time
+   940→   940→
+   941→   941→Show leaderboard snapshots where available.
+   942→   942→
+   943→   943→Do not allow arbitrary leaderboard manipulation through client requests.
+   944→   944→
+   945→   945→Any administrative correction must be audited.
+   946→   946→
+   947→   947→
+   948→   948→==================================================
+   949→   949→26. NOTIFICATION MANAGEMENT
+   950→   950→==================================================
+   951→   951→
+   952→   952→Create a Notifications admin section.
+   953→   953→
+   954→   954→Admin can view:
+   955→   955→
+   956→   956→- Notification volume
+   957→   957→- Notification types
+   958→   958→- Delivery status
+   959→   959→- Recent notifications
+   960→   960→
+   961→   961→If broadcast notifications are supported:
+   962→   962→
+   963→   963→Admin can send:
+   964→   964→
+   965→   965→- Announcement
+   966→   966→- Maintenance notice
+   967→   967→- Important service notification
+   968→   968→
+   969→   969→Require:
+   970→   970→
+   971→   971→Title
+   972→   972→Message
+   973→   973→Audience
+   974→   974→
+   975→   975→Audience options:
+   976→   976→
+   977→   977→- All users
+   978→   978→- Specific community
+   979→   979→- Specific user
+   980→   980→- Active subscribers
+   981→   981→- Other existing supported segments
+   982→   982→
+   983→   983→Require confirmation before sending.
+   984→   984→
+   985→   985→Do not create an uncontrolled spam mechanism.
+   986→   986→
+   987→   987→Log every admin broadcast.
+   988→   988→
+   989→   989→
+   990→   990→==================================================
+   991→   991→27. WEEKLY RECAP EMAIL MANAGEMENT
+   992→   992→==================================================
+   993→   993→
+   994→   994→The existing application already has weekly recap email architecture.
+   995→   995→
+   996→   996→Admin should be able to:
+   997→   997→
+   998→   998→- Preview recap for a user
+   999→   999→- Send recap to one user
+  1000→  1000→- View sending status
+  1001→  1001→- View recent recap activity
+  1002→  1002→
+  1003→  1003→For bulk send:
+  1004→  1004→
+  1005→  1005→- Require confirmation
+  1006→  1006→- Show recipient count
+  1007→  1007→- Prevent accidental duplicate sends where possible
+  1008→  1008→- Respect notification/email preferences
+  1009→  1009→- Log the operation
+  1010→  1010→
+  1011→  1011→Do not expose email provider API keys.
+  1012→  1012→
+  1013→  1013→
+  1014→  1014→==================================================
+  1015→  1015→28. REFERRAL MANAGEMENT
+  1016→  1016→==================================================
+  1017→  1017→
+  1018→  1018→Create a Referrals section.
+  1019→  1019→
+  1020→  1020→Show:
+  1021→  1021→
+  1022→  1022→- Referral code
+  1023→  1023→- Referrer
+  1024→  1024→- Referred user
+  1025→  1025→- Status
+  1026→  1026→- Created date
+  1027→  1027→- Conversion
+  1028→  1028→- Reward where applicable
+  1029→  1029→
+  1030→  1030→Metrics:
+  1031→  1031→
+  1032→  1032→- Total referrals
+  1033→  1033→- Successful referrals
+  1034→  1034→- Referral conversion rate
+  1035→  1035→- Top referral sources where available
+  1036→  1036→
+  1037→  1037→Do not manually alter referral rewards without an audited admin action.
+  1038→  1038→
+  1039→  1039→
+  1040→  1040→==================================================
+  1041→  1041→29. CONTENT MANAGEMENT
+  1042→  1042→==================================================
+  1043→  1043→
+  1044→  1044→Create a lightweight Content section for manageable platform content.
+  1045→  1045→
+  1046→  1046→Where existing architecture supports it, allow admins to manage:
+  1047→  1047→
+  1048→  1048→- Communities
+  1049→  1049→- Community descriptions
+  1050→  1050→- Exam landing information
+  1051→  1051→- Featured communities
+  1052→  1052→- Room descriptions
+  1053→  1053→- FAQs
+  1054→  1054→- Announcements
+  1055→  1055→
+  1056→  1056→Do NOT create a huge CMS.
+  1057→  1057→
+  1058→  1058→Only add content management that maps naturally to existing data/models.
+  1059→  1059→
+  1060→  1060→
+  1061→  1061→==================================================
+  1062→  1062→30. SYSTEM HEALTH
+  1063→  1063→==================================================
+  1064→  1064→
+  1065→  1065→Create a System Health page.
+  1066→  1066→
+  1067→  1067→Show available health information:
+  1068→  1068→
+  1069→  1069→Application
+  1070→  1070→- Status
+  1071→  1071→- Version/build
+  1072→  1072→
+  1073→  1073→Database
+  1074→  1074→- Connection status
+  1075→  1075→- Query/error indicators where available
+  1076→  1076→
+  1077→  1077→Redis
+  1078→  1078→- Connection status in production
+  1079→  1079→
+  1080→  1080→LiveKit
+  1081→  1081→- Configuration/connection status where safely detectable
+  1082→  1082→
+  1083→  1083→Email
+  1084→  1084→- Resend configuration status where safely detectable
+  1085→  1085→
+  1086→  1086→Analytics
+  1087→  1087→- PostHog status
+  1088→  1088→
+  1089→  1089→Error monitoring
+  1090→  1090→- Sentry status where available
+  1091→  1091→
+  1092→  1092→Do NOT display secret values.
+  1093→  1093→
+  1094→  1094→For environment variables show only:
+  1095→  1095→
+  1096→  1096→Configured
+  1097→  1097→Not configured
+  1098→  1098→
+  1099→  1099→Never show:
+  1100→  1100→
+  1101→  1101→API keys
+  1102→  1102→Secrets
+  1103→  1103→Tokens
+  1104→  1104→Passwords
+  1105→  1105→
+  1106→  1106→
+  1107→  1107→==================================================
+  1108→  1108→31. SANDBOX VS PRODUCTION
+  1109→  1109→==================================================
+  1110→  1110→
+  1111→  1111→The current sandbox uses:
+  1112→  1112→
+  1113→  1113→- SQLite instead of production PostgreSQL
+  1114→  1114→- In-memory presence instead of Redis
+  1115→  1115→- Simulated LiveKit
+  1116→  1116→- Simulated payments
+  1117→  1117→- Analytics stubs where applicable
+  1118→  1118→
+  1119→  1119→The admin panel must clearly distinguish these.
+  1120→  1120→
+  1121→  1121→Example:
+  1122→  1122→
+  1123→  1123→Environment: SANDBOX
+  1124→  1124→
+  1125→  1125→LiveKit:
+  1126→  1126→Simulated
+  1127→  1127→
+  1128→  1128→Payments:
+  1129→  1129→Simulated
+  1130→  1130→
+  1131→  1131→Analytics:
+  1132→  1132→Sandbox
+  1133→  1133→
+  1134→  1134→Do NOT claim production connectivity when it is not configured.
+  1135→  1135→
+  1136→  1136→
+  1137→  1137→==================================================
+  1138→  1138→32. AUDIT LOGS
+  1139→  1139→==================================================
+  1140→  1140→
+  1141→  1141→Create a complete Audit Logs section using the existing AuditLog model.
+  1142→  1142→
+  1143→  1143→Every sensitive admin action should be logged.
+  1144→  1144→
+  1145→  1145→Examples:
+  1146→  1146→
+  1147→  1147→USER_SUSPENDED
+  1148→  1148→USER_UNSUSPENDED
+  1149→  1149→USER_BANNED
+  1150→  1150→USER_UNBANNED
+  1151→  1151→ROLE_CHANGED
+  1152→  1152→USER_DELETED
+  1153→  1153→ROOM_DISABLED
+  1154→  1154→ROOM_ENABLED
+  1155→  1155→COMMUNITY_UPDATED
+  1156→  1156→REPORT_RESOLVED
+  1157→  1157→REPORT_DISMISSED
+  1158→  1158→PAYMENT_VIEWED
+  1159→  1159→REFUND_CREATED
+  1160→  1160→SUBSCRIPTION_CHANGED
+  1161→  1161→BADGE_UPDATED
+  1162→  1162→XP_ADJUSTED
+  1163→  1163→NOTIFICATION_SENT
+  1164→  1164→RECAP_SENT
+  1165→  1165→ADMIN_LOGIN
+  1166→  1166→ADMIN_LOGOUT
+  1167→  1167→SETTINGS_CHANGED
+  1168→  1168→
+  1169→  1169→Log:
+  1170→  1170→
+  1171→  1171→- Event
+  1172→  1172→- Admin
+  1173→  1173→- Target entity
+  1174→  1174→- Target ID
+  1175→  1175→- Timestamp
+  1176→  1176→- IP/device metadata if the existing architecture supports it
+  1177→  1177→- Before/after values where appropriate
+  1178→  1178→- Reason
+  1179→  1179→- Metadata
+  1180→  1180→
+  1181→  1181→Audit logs must be append-only from the normal admin UI.
+  1182→  1182→
+  1183→  1183→Admins should NOT be able to silently delete or modify audit records.
+  1184→  1184→
+  1185→  1185→
+  1186→  1186→==================================================
+  1187→  1187→33. AUDIT LOG SEARCH
+  1188→  1188→==================================================
+  1189→  1189→
+  1190→  1190→Filters:
+  1191→  1191→
+  1192→  1192→- Admin
+  1193→  1193→- Action
+  1194→  1194→- Entity type
+  1195→  1195→- Target
+  1196→  1196→- Date
+  1197→  1197→- User
+  1198→  1198→- Community
+  1199→  1199→- Room
+  1200→  1200→
+  1201→  1201→Search should be paginated.
+  1202→  1202→
+  1203→  1203→Allow viewing full event details.
+  1204→  1204→
+  1205→  1205→
+  1206→  1206→==================================================
+  1207→  1207→34. ADMIN ACTION CONFIRMATIONS
+  1208→  1208→==================================================
+  1209→  1209→
+  1210→  1210→Dangerous actions must require confirmation.
+  1211→  1211→
+  1212→  1212→Dangerous actions include:
+  1213→  1213→
+  1214→  1214→- Ban
+  1215→  1215→- Delete
+  1216→  1216→- Role change
+  1217→  1217→- Disable room
+  1218→  1218→- Delete/disable community
+  1219→  1219→- Refund
+  1220→  1220→- XP adjustment
+  1221→  1221→- Bulk notification
+  1222→  1222→- Bulk email
+  1223→  1223→
+  1224→  1224→Use explicit confirmation dialogs.
+  1225→  1225→
+  1226→  1226→For highly destructive actions, require typing:
+  1227→  1227→
+  1228→  1228→CONFIRM
+  1229→  1229→
+  1230→  1230→or the target name.
+  1231→  1231→
+  1232→  1232→Do not make destructive actions one-click.
+  1233→  1233→
+  1234→  1234→
+  1235→  1235→==================================================
+  1236→  1236→35. ADMIN PERMISSION SECURITY
+  1237→  1237→==================================================
+  1238→  1238→
+  1239→  1239→Every admin API must enforce RBAC SERVER-SIDE.
+  1240→  1240→
+  1241→  1241→Do NOT rely on:
+  1242→  1242→
+  1243→  1243→- Hidden buttons
+  1244→  1244→- Frontend route protection only
+  1245→  1245→- Client-side role checks
+  1246→  1246→
+  1247→  1247→A normal user must receive an authorization error if they directly call:
+  1248→  1248→
+  1249→  1249→/api/admin/*
+  1250→  1250→
+  1251→  1251→Moderator permissions must be limited to moderation operations where supported.
+  1252→  1252→
+  1253→  1253→Admin-only operations must remain admin-only.
+  1254→  1254→
+  1255→  1255→
+  1256→  1256→==================================================
+  1257→  1257→36. RATE LIMITING
+  1258→  1258→==================================================
+  1259→  1259→
+  1260→  1260→Admin APIs should still have reasonable rate limits.
+  1261→  1261→
+  1262→  1262→Especially:
+  1263→  1263→
+  1264→  1264→- Bulk email
+  1265→  1265→- Bulk notification
+  1266→  1266→- Search
+  1267→  1267→- User actions
+  1268→  1268→- Reports
+  1269→  1269→- Audit log queries
+  1270→  1270→
+  1271→  1271→Do not disable rate limiting simply because the caller is an admin.
+  1272→  1272→
+  1273→  1273→
+  1274→  1274→==================================================
+  1275→  1275→37. ADMIN DASHBOARD UX
+  1276→  1276→==================================================
+  1277→  1277→
+  1278→  1278→The admin panel should look professional but remain simple.
+  1279→  1279→
+  1280→  1280→Use:
+  1281→  1281→
+  1282→  1282→- Clean tables
+  1283→  1283→- Search
+  1284→  1284→- Filters
+  1285→  1285→- Pagination
+  1286→  1286→- Tabs
+  1287→  1287→- Cards for high-level metrics
+  1288→  1288→- Charts for analytics
+  1289→  1289→- Confirmation dialogs
+  1290→  1290→- Toast feedback
+  1291→  1291→- Empty states
+  1292→  1292→- Loading states
+  1293→  1293→- Error states
+  1294→  1294→
+  1295→  1295→Use Sankalp's existing design language:
+  1296→  1296→
+  1297→  1297→- Emerald primary
+  1298→  1298→- Saffron/amber accent
+  1299→  1299→- Clean white/light surfaces
+  1300→  1300→- Minimal design
+  1301→  1301→
+  1302→  1302→Do not turn the admin panel into an unnecessarily complicated enterprise dashboard.
+  1303→  1303→
+  1304→  1304→
+  1305→  1305→==================================================
+  1306→  1306→38. RESPONSIVE ADMIN PANEL
+  1307→  1307→==================================================
+  1308→  1308→
+  1309→  1309→Desktop:
+  1310→  1310→- Sidebar
+  1311→  1311→- Tables
+  1312→  1312→- Charts
+  1313→  1313→
+  1314→  1314→Tablet:
+  1315→  1315→- Collapsible navigation
+  1316→  1316→- Responsive tables
+  1317→  1317→
+  1318→  1318→Mobile:
+  1319→  1319→- Cards instead of enormous tables
+  1320→  1320→- Horizontal scrolling only when necessary
+  1321→  1321→- Important actions accessible
+  1322→  1322→- Destructive actions still clearly separated
+  1323→  1323→
+  1324→  1324→
+  1325→  1325→==================================================
+  1326→  1326→39. EXPORTS
+  1327→  1327→==================================================
+  1328→  1328→
+  1329→  1329→Where appropriate, allow admin export of operational data:
+  1330→  1330→
+  1331→  1331→- Users CSV
+  1332→  1332→- Study history CSV
+  1333→  1333→- Payments CSV
+  1334→  1334→- Subscriptions CSV
+  1335→  1335→- Reports CSV
+  1336→  1336→- Referrals CSV
+  1337→  1337→- Audit logs CSV
+  1338→  1338→
+  1339→  1339→Exports must:
+  1340→  1340→
+  1341→  1341→- Require admin authorization
+  1342→  1342→- Be generated server-side
+  1343→  1343→- Respect pagination/filters
+  1344→  1344→- Avoid exposing secrets
+  1345→  1345→- Be audited
+  1346→  1346→
+  1347→  1347→Do not export passwords, authentication tokens, or sensitive security secrets.
+  1348→  1348→
+  1349→  1349→
+  1350→  1350→==================================================
+  1351→  1351→40. ADMIN API DESIGN
+  1352→  1352→==================================================
+  1353→  1353→
+  1354→  1354→Reuse the existing /api/admin/* architecture.
+  1355→  1355→
+  1356→  1356→Current documented admin endpoints include:
+  1357→  1357→
+  1358→  1358→- admin stats
+  1359→  1359→- admin users
+  1360→  1360→- admin user detail
+  1361→  1361→- admin reports
+  1362→  1362→- admin report detail
+  1363→  1363→- admin rooms
+  1364→  1364→- admin room detail
+  1365→  1365→- admin communities
+  1366→  1366→
+  1367→  1367→Extend this architecture only where necessary.
+  1368→  1368→
+  1369→  1369→Use consistent REST patterns.
+  1370→  1370→
+  1371→  1371→Example:
+  1372→  1372→
+  1373→  1373→GET /api/admin/stats
+  1374→  1374→GET /api/admin/users
+  1375→  1375→GET /api/admin/users/:id
+  1376→  1376→GET /api/admin/communities
+  1377→  1377→GET /api/admin/rooms
+  1378→  1378→GET /api/admin/rooms/:id
+  1379→  1379→GET /api/admin/reports
+  1380→  1380→GET /api/admin/reports/:id
+  1381→  1381→GET /api/admin/audit-logs
+  1382→  1382→
+  1383→  1383→For actions use appropriate POST/PATCH/DELETE methods rather than GET mutations.
+  1384→  1384→
+  1385→  1385→
+  1386→  1386→==================================================
+  1387→  1387→41. API RESPONSE SECURITY
+  1388→  1388→==================================================
+  1389→  1389→
+  1390→  1390→Admin APIs must return only necessary fields.
+  1391→  1391→
+  1392→  1392→Never return:
+  1393→  1393→
+  1394→  1394→- Password hashes
+  1395→  1395→- Session tokens
+  1396→  1396→- JWT secrets
+  1397→  1397→- Service-role keys
+  1398→  1398→- Payment secrets
+  1399→  1399→- OAuth secrets
+  1400→  1400→- API keys
+  1401→  1401→
+  1402→  1402→Even administrators should not receive raw secrets through the UI.
+  1403→  1403→
+  1404→  1404→
+  1405→  1405→==================================================
+  1406→  1406→42. DATABASE CHANGES
+  1407→  1407→==================================================
+  1408→  1408→
+  1409→  1409→Before changing the database:
+  1410→  1410→
+  1411→  1411→Inspect the existing Prisma schema.
+  1412→  1412→
+  1413→  1413→Reuse existing models.
+  1414→  1414→
+  1415→  1415→Only add fields/models when genuinely required.
+  1416→  1416→
+  1417→  1417→Likely existing models that should be reused:
+  1418→  1418→
+  1419→  1419→User
+  1420→  1420→Profile
+  1421→  1421→Community
+  1422→  1422→CommunityMember
+  1423→  1423→Room
+  1424→  1424→RoomMember
+  1425→  1425→StudySession
+  1426→  1426→Badge
+  1427→  1427→UserBadge
+  1428→  1428→LeaderboardSnapshot
+  1429→  1429→Friendship
+  1430→  1430→Block
+  1431→  1431→Report
+  1432→  1432→RoomMessage
+  1433→  1433→Notification
+  1434→  1434→Subscription
+  1435→  1435→Payment
+  1436→  1436→UserDevice
+  1437→  1437→Referral
+  1438→  1438→AuditLog
+  1439→  1439→
+  1440→  1440→Do not duplicate these models.
+  1441→  1441→
+  1442→  1442→
+  1443→  1443→==================================================
+  1444→  1444→43. MOBILE CONTRACT
+  1445→  1445→==================================================
+  1446→  1446→
+  1447→  1447→The future Android application uses the same backend.
+  1448→  1448→
+  1449→  1449→The admin console itself does NOT need to become a separate Android feature.
+  1450→  1450→
+  1451→  1451→However, if new admin APIs are added:
+  1452→  1452→
+  1453→  1453→- Document them appropriately.
+  1454→  1454→- Keep API contracts clean.
+  1455→  1455→- Do not break existing mobile APIs.
+  1456→  1456→- Update docs/api.md.
+  1457→  1457→- Update docs/mobile-contract.md only when an endpoint affects the Android client.
+  1458→  1458→
+  1459→  1459→Do not introduce web-only business logic that changes core backend behavior.
+  1460→  1460→
+  1461→  1461→
+  1462→  1462→==================================================
+  1463→  1463→44. ANALYTICS DATA INTEGRITY
+  1464→  1464→==================================================
+  1465→  1465→
+  1466→  1466→Admin analytics must use actual backend data.
+  1467→  1467→
+  1468→  1468→Never calculate trusted metrics from client-submitted values.
+  1469→  1469→
+  1470→  1470→Study analytics must originate from server-authoritative study sessions.
+  1471→  1471→
+  1472→  1472→Subscription analytics must originate from Subscription/Payment records.
+  1473→  1473→
+  1474→  1474→Room analytics must originate from actual room membership/session data.
+  1475→  1475→
+  1476→  1476→User counts must originate from the database.
+  1477→  1477→
+  1478→  1478→Participant counts must originate from actual presence where available.
+  1479→  1479→
+  1480→  1480→
+  1481→  1481→==================================================
+  1482→  1482→45. ADMIN SETTINGS
+  1483→  1483→==================================================
+  1484→  1484→
+  1485→  1485→Create a Settings section for safe operational configuration.
+  1486→  1486→
+  1487→  1487→Show:
+  1488→  1488→
+  1489→  1489→Platform configuration
+  1490→  1490→- Environment
+  1491→  1491→- Version
+  1492→  1492→- Feature flags where existing architecture supports them
+  1493→  1493→
+  1494→  1494→Operational configuration:
+  1495→  1495→- Maintenance mode
+  1496→  1496→- Registration enabled/disabled
+  1497→  1497→- Room creation enabled/disabled
+  1498→  1498→- New community creation policy
+  1499→  1499→- Notification controls
+  1500→  1500→
+  1501→  1501→Do not put secrets here.
+  1502→  1502→
+  1503→  1503→Do not allow arbitrary environment variable editing from the UI.
+  1504→  1504→
+  1505→  1505→
+  1506→  1506→==================================================
+  1507→  1507→46. MAINTENANCE MODE
+  1508→  1508→==================================================
+  1509→  1509→
+  1510→  1510→If maintenance mode is implemented:
+  1511→  1511→
+  1512→  1512→Admin can:
+  1513→  1513→
+  1514→  1514→Enable maintenance mode
+  1515→  1515→Disable maintenance mode
+  1516→  1516→
+  1517→  1517→Require confirmation.
+  1518→  1518→
+  1519→  1519→Show:
+  1520→  1520→
+  1521→  1521→"Maintenance mode is currently enabled."
+  1522→  1522→
+  1523→  1523→Normal users should receive a clear maintenance message.
+  1524→  1524→
+  1525→  1525→Admin users should still be able to access the admin console.
+  1526→  1526→
+  1527→  1527→
+  1528→  1528→==================================================
+  1529→  1529→47. ADMIN NOTIFICATION CENTER
+  1530→  1530→==================================================
+  1531→  1531→
+  1532→  1532→Admin dashboard should surface operational alerts:
+  1533→  1533→
+  1534→  1534→- New reports
+  1535→  1535→- Failed payments
+  1536→  1536→- System errors where available
+  1537→  1537→- Suspicious activity where existing security systems support it
+  1538→  1538→- Service configuration problems
+  1539→  1539→- Large increase in reports
+  1540→  1540→- LiveKit configuration missing
+  1541→  1541→- Redis configuration missing
+  1542→  1542→- Email configuration missing
+  1543→  1543→
+  1544→  1544→Do not create fake alerts.
+  1545→  1545→
+  1546→  1546→
+  1547→  1547→==================================================
+  1548→  1548→48. EMPTY / ERROR / LOADING STATES
+  1549→  1549→==================================================
+  1550→  1550→
+  1551→  1551→Every admin section must have:
+  1552→  1552→
+  1553→  1553→Loading state
+  1554→  1554→Empty state
+  1555→  1555→Error state
+  1556→  1556→Retry action
+  1557→  1557→
+  1558→  1558→Examples:
+  1559→  1559→
+  1560→  1560→"No reports found."
+  1561→  1561→
+  1562→  1562→"No payments found."
+  1563→  1563→
+  1564→  1564→"No study data available for this period."
+  1565→  1565→
+  1566→  1566→
+  1567→  1567→==================================================
+  1568→  1568→49. PERFORMANCE
+  1569→  1569→==================================================
+  1570→  1570→
+  1571→  1571→Admin pages must not load entire database tables.
+  1572→  1572→
+  1573→  1573→Use:
+  1574→  1574→
+  1575→  1575→- Pagination
+  1576→  1576→- Indexed queries
+  1577→  1577→- Search
+  1578→  1578→- Filters
+  1579→  1579→- Aggregation queries
+  1580→  1580→- Lazy loading
+  1581→  1581→- Reasonable date ranges
+  1582→  1582→
+  1583→  1583→Do not perform expensive full-table queries on every page load.
+  1584→  1584→
+  1585→  1585→Analytics queries should be optimized.
+  1586→  1586→
+  1587→  1587→Use Redis caching in production where appropriate.
+  1588→  1588→
+  1589→  1589→
+  1590→  1590→==================================================
+  1591→  1591→50. SECURITY TESTING
+  1592→  1592→==================================================
+  1593→  1593→
+  1594→  1594→Verify:
+  1595→  1595→
+  1596→  1596→1. Normal user cannot access /admin.
+  1597→  1597→2. Normal user cannot call /api/admin/*.
+  1598→  1598→3. Moderator cannot access admin-only actions.
+  1599→  1599→4. Admin can access admin console.
+  1600→  1600→5. Dangerous actions require confirmation.
+  1601→  1601→6. Every sensitive action creates AuditLog.
+  1602→  1602→7. Password hashes never appear in API responses.
+  1603→  1603→8. Session tokens never appear.
+  1604→  1604→9. API keys never appear.
+  1605→  1605→10. Payment secrets never appear.
+  1606→  1606→11. User deletion is protected.
+  1607→  1607→12. Admin cannot accidentally delete themselves.
+  1608→  1608→13. Pagination works.
+  1609→  1609→14. Search works.
+  1610→  1610→15. Filters work.
+  1611→  1611→16. Empty states work.
+  1612→  1612→17. Error states work.
+  1613→  1613→
+  1614→  1614→
+  1615→  1615→==================================================
+  1616→  1616→51. BROWSER VERIFICATION
+  1617→  1617→==================================================
+  1618→  1618→
+  1619→  1619→After implementation, test the admin console with the existing admin demo account.
+  1620→  1620→
+  1621→  1621→Verify:
+  1622→  1622→
+  1623→  1623→Dashboard ✓
+  1624→  1624→Users ✓
+  1625→  1625→User detail ✓
+  1626→  1626→User search ✓
+  1627→  1627→User filters ✓
+  1628→  1628→User actions ✓
+  1629→  1629→Communities ✓
+  1630→  1630→Rooms ✓
+  1631→  1631→Room moderation ✓
+  1632→  1632→Reports ✓
+  1633→  1633→Report detail ✓
+  1634→  1634→Moderation actions ✓
+  1635→  1635→Subscriptions ✓
+  1636→  1636→Payments ✓
+  1637→  1637→Referrals ✓
+  1638→  1638→Study analytics ✓
+  1639→  1639→Engagement analytics ✓
+  1640→  1640→Notifications ✓
+  1641→  1641→Badges/XP ✓
+  1642→  1642→System health ✓
+  1643→  1643→Audit logs ✓
+  1644→  1644→Admin settings ✓
+  1645→  1645→CSV exports ✓
+  1646→  1646→
+  1647→  1647→Also verify normal user access is denied.
+  1648→  1648→
+  1649→  1649→
+  1650→  1650→==================================================
+  1651→  1651→52. DO NOT BREAK EXISTING FEATURES
+  1652→  1652→==================================================
+  1653→  1653→
+  1654→  1654→Preserve all existing Sankalp functionality.
+  1655→  1655→
+  1656→  1656→Especially:
+  1657→  1657→
+  1658→  1658→- Authentication
+  1659→  1659→- Onboarding
+  1660→  1660→- Communities
+  1661→  1661→- Default rooms
+  1662→  1662→- Live study rooms
+  1663→  1663→- Participant video grid
+  1664→  1664→- Camera
+  1665→  1665→- Silent-room behavior
+  1666→  1666→- Custom Pomodoro
+  1667→  1667→- Ambient sounds
+  1668→  1668→- Study sessions
+  1669→  1669→- XP
+  1670→  1670→- Streaks
+  1671→  1671→- Goals
+  1672→  1672→- Badges
+  1673→  1673→- Leaderboards
+  1674→  1674→- Friends
+  1675→  1675→- Notifications
+  1676→  1676→- Subscriptions
+  1677→  1677→- ₹14 24-hour pass
+  1678→  1678→- ₹179 monthly
+  1679→  1679→- ₹699 6-month
+  1680→  1680→- ₹999 yearly
+  1681→  1681→- Lifetime 60-minute free live-room allowance
+  1682→  1682→- Referrals
+  1683→  1683→- Profile
+  1684→  1684→- Moderation
+  1685→  1685→- Mobile API contract
+  1686→  1686→
+  1687→  1687→
+  1688→  1688→==================================================
+  1689→  1689→53. DOCUMENTATION
+  1690→  1690→==================================================
+  1691→  1691→
+  1692→  1692→Update:
+  1693→  1693→
+  1694→  1694→docs/api.md
+  1695→  1695→docs/architecture.md
+  1696→  1696→docs/security.md
+  1697→  1697→
+  1698→  1698→and any relevant admin documentation.
+  1699→  1699→
+  1700→  1700→Document:
+  1701→  1701→
+  1702→  1702→- Admin RBAC
+  1703→  1703→- Admin endpoints
+  1704→  1704→- Admin permissions
+  1705→  1705→- Audit events
+  1706→  1706→- Moderation workflow
+  1707→  1707→- Subscription/payment admin behavior
+  1708→  1708→- Analytics sources
+  1709→  1709→- Export behavior
+  1710→  1710→
+  1711→  1711→If APIs are changed, update the binding API documentation.
+  1712→  1712→
+  1713→  1713→Do not leave documentation inconsistent with the implementation.
+  1714→  1714→
+  1715→  1715→
+  1716→  1716→==================================================
+  1717→  1717→54. FINAL ADMIN INFORMATION ARCHITECTURE
+  1718→  1718→==================================================
+  1719→  1719→
+  1720→  1720→The final admin sidebar should approximately be:
+  1721→  1721→
+  1722→  1722→SANKALP ADMIN
+  1723→  1723→
+  1724→  1724→Overview
+  1725→  1725→
+  1726→  1726→MANAGEMENT
+  1727→  1727→├── Users
+  1728→  1728→├── Communities
+  1729→  1729→├── Rooms
+  1730→  1730→└── Content
+  1731→  1731→
+  1732→  1732→MODERATION
+  1733→  1733→├── Reports
+  1734→  1734→├── Moderation
+  1735→  1735→└── Blocks / Safety
+  1736→  1736→
+  1737→  1737→BUSINESS
+  1738→  1738→├── Subscriptions
+  1739→  1739→├── Payments
+  1740→  1740→└── Referrals
+  1741→  1741→
+  1742→  1742→ANALYTICS
+  1743→  1743→├── Study Analytics
+  1744→  1744→├── Engagement
+  1745→  1745→└── Platform Analytics
+  1746→  1746→
+  1747→  1747→COMMUNICATION
+  1748→  1748→├── Notifications
+  1749→  1749→└── Email / Weekly Recaps
+  1750→  1750→
+  1751→  1751→GAMIFICATION
+  1752→  1752→├── XP
+  1753→  1753→├── Badges
+  1754→  1754→└── Leaderboards
+  1755→  1755→
+  1756→  1756→SYSTEM
+  1757→  1757→├── System Health
+  1758→  1758→├── Audit Logs
+  1759→  1759→└── Settings
+  1760→  1760→
+  1761→  1761→
+  1762→  1762→==================================================
+  1763→  1763→55. FINAL IMPLEMENTATION RULE
+  1764→  1764→==================================================
+  1765→  1765→
+  1766→  1766→Do not add features simply because they are listed here if the existing architecture cannot support them correctly.
+  1767→  1767→
+  1768→  1768→Prefer:
+  1769→  1769→
+  1770→  1770→REAL + FUNCTIONAL + SERVER-AUTHORITATIVE
+  1771→  1771→
+  1772→  1772→over:
+  1773→  1773→
+  1774→  1774→FAKE + VISUALLY IMPRESSIVE
+  1775→  1775→
+  1776→  1776→If a feature cannot currently be fully implemented because the sandbox uses simulated infrastructure, implement the UI and correct architecture only where appropriate and clearly label the limitation.
+  1777→  1777→
+  1778→  1778→Do not fabricate production data.
+  1779→  1779→
+  1780→  1780→Do not fake payments.
+  1781→  1781→
+  1782→  1782→Do not fake analytics.
+  1783→  1783→
+  1784→  1784→Do not fake LiveKit health.
+  1785→  1785→
+  1786→  1786→Do not fake Redis health.
+  1787→  1787→
+  1788→  1788→Do not fake email delivery.
+  1789→  1789→
+  1790→  1790→At the end:
+  1791→  1791→
+  1792→  1792→1. Run lint.
+  1793→  1793→2. Run existing tests.
+  1794→  1794→3. Add focused tests for admin RBAC and dangerous actions.
+  1795→  1795→4. Browser-test the complete admin flow.
+  1796→  1796→5. Check for console/runtime errors.
+  1797→  1797→6. Verify normal users cannot access admin APIs.
+  1798→  1798→7. Verify all sensitive actions generate AuditLog entries.
+  1799→  1799→8. Verify existing user-facing functionality remains intact.
+  1800→  1800→
+  1801→  1801→Finally provide a concise implementation summary containing:
+  1802→  1802→
+  1803→  1803→- Admin pages added/changed
+  1804→  1804→- APIs added/changed
+  1805→  1805→- Database changes
+  1806→  1806→- RBAC changes
+  1807→  1807→- Audit events added
+  1808→  1808→- Tests performed
+  1809→  1809→- Sandbox limitations

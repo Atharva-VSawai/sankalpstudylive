@@ -179,10 +179,19 @@ function renderView(path: string, segments: string[], me: any): React.ReactNode 
   // Admin
   if (path === "/admin") return <AdminView section="dashboard" />
   if (path === "/admin/users") return <AdminView section="users" />
+  if (segments[0] === "admin" && segments[1] === "users" && segments[2]) return <AdminView section="user-detail" userId={segments[2]} />
   if (path === "/admin/communities") return <AdminView section="communities" />
   if (path === "/admin/rooms") return <AdminView section="rooms" />
   if (path === "/admin/reports") return <AdminView section="reports" />
   if (path === "/admin/analytics") return <AdminView section="analytics" />
+  if (path === "/admin/subscriptions") return <AdminView section="subscriptions" />
+  if (path === "/admin/payments") return <AdminView section="payments" />
+  if (path === "/admin/referrals") return <AdminView section="referrals" />
+  if (path === "/admin/audit-logs") return <AdminView section="audit-logs" />
+  if (path === "/admin/system-health") return <AdminView section="system-health" />
+  if (path === "/admin/badges") return <AdminView section="badges" />
+  if (path === "/admin/notifications") return <AdminView section="notifications" />
+  if (path === "/admin/settings") return <AdminView section="settings" />
 
   return <div className="p-10 text-center text-muted-foreground">Page not found: {path}</div>
 }
