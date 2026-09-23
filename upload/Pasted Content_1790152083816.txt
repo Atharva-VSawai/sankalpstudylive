@@ -1,0 +1,1731 @@
+You are working on the existing Sankalp application.
+
+Sankalp is an Indian virtual study/accountability platform with communities, silent live study rooms, Pomodoro, study tracking, XP, streaks, leaderboards, profiles, and paid access.
+
+Your task is to implement a COMPLETE, PRODUCTION-STRUCTURED RAZORPAY PAYMENT SYSTEM in the existing application.
+
+IMPORTANT:
+This is an INCREMENTAL implementation.
+
+DO NOT rewrite the existing application.
+DO NOT replace the current architecture.
+DO NOT create a second payment system.
+DO NOT create fake/mock payment success flows.
+Reuse the existing authentication, users, subscriptions, payments, access-control, admin, and database architecture wherever possible.
+
+The application must work with RAZORPAY TEST MODE first.
+
+==================================================
+1. RAZORPAY TEST CREDENTIALS
+==================================================
+
+Use these Razorpay TEST MODE credentials:
+
+RAZORPAY_KEY_ID=rzp_test_TfPPOoBmrNLV9U
+RAZORPAY_KEY_SECRET=Yat72TxXkITmACrzPXmAM5lS
+
+These credentials are TEST credentials.
+
+Configure them through environment variables.
+
+Do NOT:
+- hardcode the Key Secret in application source code
+- expose Key Secret to the browser
+- expose Key Secret through an API
+- put Key Secret in frontend code
+- put Key Secret in Android code
+- put Key Secret in Git
+- print Key Secret in logs
+- display Key Secret in admin UI
+- put Key Secret in public documentation
+- send Key Secret to the client
+
+The Key ID can be exposed to Razorpay Checkout when required.
+
+Create/update:
+
+.env.example
+
+with:
+
+RAZORPAY_KEY_ID=
+RAZORPAY_KEY_SECRET=
+RAZORPAY_WEBHOOK_SECRET=
+RAZORPAY_MONTHLY_PLAN_ID=
+
+The actual local/server TEST values should be stored only in the private environment configuration.
+
+IMPORTANT:
+Do NOT use the Razorpay Key Secret as the webhook secret.
+
+RAZORPAY_WEBHOOK_SECRET must be a separate secret configured for the Razorpay webhook.
+
+RAZORPAY_MONTHLY_PLAN_ID must contain the Razorpay Plan ID for the ₹179/month subscription once configured.
+
+==================================================
+2. EXISTING SANKALP PRICING
+==================================================
+
+Preserve the existing Sankalp pricing exactly:
+
+FREE
+₹0
+
+FOCUS PASS
+₹14
+Access duration: 24 hours
+Payment type: ONE-TIME PAYMENT
+
+MONTHLY
+₹179/month
+Access duration: active monthly subscription
+Payment type: RECURRING SUBSCRIPTION
+
+6 MONTHS
+₹699
+Access duration: 6 months
+Payment type: ONE-TIME PAYMENT
+
+YEARLY
+₹999
+Access duration: 12 months
+Payment type: ONE-TIME PAYMENT
+
+Do not change these prices.
+
+==================================================
+3. IMPORTANT FREE USER ACCESS RULE
+==================================================
+
+Every user receives:
+
+60 MINUTES TOTAL LIFETIME FREE LIVE STUDY ROOM ACCESS.
+
+This is NOT:
+- 60 minutes per room
+- 60 minutes per community
+- 60 minutes per exam
+- 60 minutes per day
+- 60 minutes per device
+- 60 minutes per browser
+
+It is a GLOBAL lifetime allowance for that user.
+
+Example:
+
+User studies:
+GATE room = 30 minutes
+JEE room = 30 minutes
+
+Total = 60 minutes.
+
+The user has now exhausted the free live-room allowance.
+
+Once the 60 minutes are exhausted:
+
+The user cannot enter any live study room unless they have an active paid plan.
+
+Browsing the platform does not consume free minutes.
+
+Using Pomodoro outside a live study room does not consume free minutes.
+
+Paid access gives unlimited live study-room access while the paid entitlement is active.
+
+IMPORTANT:
+
+Payment must NOT reset the user's lifetime 60-minute allowance.
+
+If the user purchases a plan, use paid entitlement instead of consuming free minutes.
+
+If the paid plan later expires, the user returns to their remaining unused free allowance.
+
+Example:
+
+User used 25 free minutes.
+User purchases Monthly.
+Monthly expires.
+
+Remaining free allowance = 35 minutes.
+
+DO NOT reset it to 60 minutes.
+
+All of this must remain SERVER AUTHORITATIVE.
+
+==================================================
+4. RAZORPAY PAYMENT TYPES
+==================================================
+
+Implement the products as follows.
+
+------------------------------------------
+₹14 FOCUS PASS
+------------------------------------------
+
+Use Razorpay Orders + Checkout.
+
+Amount:
+
+₹14 = 1400 paise.
+
+Create the Razorpay Order SERVER-SIDE.
+
+Never allow the client to submit the price.
+
+The server determines:
+
+product = FOCUS_PASS
+amount = 1400
+
+Create a Payment record before/around order creation as appropriate according to the existing database design.
+
+Store the Razorpay order ID.
+
+Open Razorpay Checkout using the returned order ID.
+
+After checkout:
+
+verify the Razorpay payment signature SERVER-SIDE.
+
+Then verify the payment/order status server-side.
+
+Only after successful verification should Sankalp activate the 24-hour Focus Pass.
+
+------------------------------------------
+₹699 6-MONTH PLAN
+------------------------------------------
+
+Use Razorpay Orders + Checkout.
+
+Amount:
+
+₹699 = 69900 paise.
+
+Server determines the amount.
+
+Never trust the client-provided amount.
+
+Create Razorpay Order SERVER-SIDE.
+
+Pass the order ID to Checkout.
+
+After successful checkout:
+
+1. Receive Razorpay response.
+2. Send required values to backend.
+3. Verify signature server-side.
+4. Verify payment/order state server-side.
+5. Mark the payment as successful.
+6. Activate 6-month entitlement.
+
+Access duration:
+
+6 months from the correct entitlement start time.
+
+------------------------------------------
+₹999 YEARLY PLAN
+------------------------------------------
+
+Use Razorpay Orders + Checkout.
+
+Amount:
+
+₹999 = 99900 paise.
+
+Server determines the amount.
+
+Create Razorpay Order SERVER-SIDE.
+
+Pass order ID to Checkout.
+
+Verify payment signature SERVER-SIDE.
+
+Verify payment status SERVER-SIDE.
+
+Activate 12-month entitlement only after successful verification.
+
+------------------------------------------
+₹179 MONTHLY
+------------------------------------------
+
+This MUST be implemented as a REAL RECURRING SUBSCRIPTION.
+
+Do NOT simulate recurring billing with:
+- cron jobs
+- manually charging the user every month
+- creating a new one-time order every month
+- frontend timers
+- database-only renewal logic
+
+Use Razorpay Subscriptions.
+
+Amount:
+
+₹179/month = 17900 paise.
+
+Use:
+
+RAZORPAY_MONTHLY_PLAN_ID
+
+from environment configuration.
+
+Do NOT create a new Razorpay Plan every time the user clicks Subscribe.
+
+The plan should be configured once and reused.
+
+Create the Razorpay subscription server-side.
+
+Return only the information required by Razorpay Checkout to the client.
+
+After successful subscription/payment:
+
+verify the relevant Razorpay data server-side.
+
+Use webhooks to maintain subscription state.
+
+==================================================
+5. SERVER-SIDE PRICE CONTROL
+==================================================
+
+Create one authoritative server-side pricing configuration.
+
+For example:
+
+FOCUS_PASS
+amountPaise = 1400
+duration = 24 hours
+type = ONE_TIME
+
+MONTHLY
+amountPaise = 17900
+duration = recurring
+type = SUBSCRIPTION
+
+SIX_MONTH
+amountPaise = 69900
+duration = 6 months
+type = ONE_TIME
+
+YEARLY
+amountPaise = 99900
+duration = 12 months
+type = ONE_TIME
+
+The frontend must NEVER determine the actual amount.
+
+The client may send:
+
+planCode = "FOCUS_PASS"
+
+but the server must resolve the amount itself.
+
+Reject:
+- modified prices
+- unknown plans
+- negative amounts
+- arbitrary currency
+- arbitrary duration
+- client-provided entitlement duration
+
+==================================================
+6. DATABASE / EXISTING PAYMENT MODELS
+==================================================
+
+Inspect the existing Prisma/database schema first.
+
+Do NOT create duplicate User, Subscription, or Payment models if they already exist.
+
+Reuse existing models.
+
+Extend them only when required.
+
+The payment data should be able to represent at least:
+
+User
+Payment
+Subscription
+Plan/product
+Razorpay order ID
+Razorpay payment ID
+Razorpay subscription ID
+Payment status
+Subscription status
+Amount
+Currency
+Plan code
+Entitlement start
+Entitlement end
+Created timestamp
+Updated timestamp
+Failure information where appropriate
+Webhook/event identifiers where appropriate
+
+Recommended payment statuses:
+
+CREATED
+PENDING
+AUTHORIZED
+CAPTURED
+FAILED
+REFUNDED
+PARTIALLY_REFUNDED
+
+Use the application's existing enum naming conventions if different.
+
+Recommended subscription states:
+
+CREATED
+ACTIVE
+PENDING
+PAUSED
+HALTED
+CANCELLED
+EXPIRED
+COMPLETED
+
+Again, reuse existing conventions if they already exist.
+
+Do not store sensitive Razorpay secrets in database records.
+
+==================================================
+7. RAZORPAY ORDER CREATION API
+==================================================
+
+Implement a server-side endpoint similar to:
+
+POST /api/payments/razorpay/order
+
+Request:
+
+{
+  "planCode": "FOCUS_PASS"
+}
+
+The server must:
+
+1. Authenticate user.
+2. Validate planCode.
+3. Resolve plan from server configuration/database.
+4. Determine amount.
+5. Determine currency = INR.
+6. Create Razorpay Order using server-side Key Secret.
+7. Store the order/payment mapping.
+8. Return only safe information.
+
+Example safe response:
+
+{
+  "keyId": "rzp_test_TfPPOoBmrNLV9U",
+  "orderId": "...",
+  "amount": 1400,
+  "currency": "INR",
+  "planCode": "FOCUS_PASS"
+}
+
+NEVER return:
+
+razorpayKeySecret
+
+==================================================
+8. RAZORPAY CHECKOUT
+==================================================
+
+Integrate Razorpay Checkout on the pricing/payment page.
+
+The frontend should:
+
+1. User selects a plan.
+2. Frontend calls Sankalp backend.
+3. Backend creates Razorpay Order/Subscription.
+4. Backend returns safe checkout configuration.
+5. Frontend opens Razorpay Checkout.
+6. Razorpay processes TEST payment.
+7. Frontend receives checkout result.
+8. Frontend sends result to Sankalp backend.
+9. Backend verifies the payment.
+10. Backend activates entitlement.
+11. Frontend refreshes subscription/access state.
+
+Do NOT activate access simply because Razorpay Checkout returned successfully.
+
+The server verification is mandatory.
+
+==================================================
+9. PAYMENT SIGNATURE VERIFICATION
+==================================================
+
+Implement server-side Razorpay signature verification.
+
+For one-time payments, verify the Razorpay signature using:
+
+HMAC-SHA256
+
+over:
+
+order_id + "|" + payment_id
+
+using:
+
+RAZORPAY_KEY_SECRET
+
+The comparison must be secure.
+
+Do not trust:
+
+payment.success
+payment.status
+plan
+amount
+duration
+
+from the frontend.
+
+The server must independently know what the payment was supposed to be.
+
+==================================================
+10. PAYMENT STATUS VERIFICATION
+==================================================
+
+After signature verification:
+
+Verify the payment/order state server-side using Razorpay APIs as appropriate.
+
+Confirm that:
+
+- order exists
+- payment belongs to the expected order
+- payment corresponds to the expected user/payment record
+- amount matches expected amount
+- currency is INR
+- payment is in an acceptable captured/authorized state according to the integration flow
+
+Only then activate entitlement.
+
+If the amount does not match:
+
+DO NOT activate access.
+
+If currency does not match:
+
+DO NOT activate access.
+
+If signature fails:
+
+DO NOT activate access.
+
+If order does not match:
+
+DO NOT activate access.
+
+==================================================
+11. PAYMENT VERIFICATION API
+==================================================
+
+Implement an endpoint similar to:
+
+POST /api/payments/razorpay/verify
+
+Request:
+
+{
+  "razorpay_order_id": "...",
+  "razorpay_payment_id": "...",
+  "razorpay_signature": "..."
+}
+
+The server must:
+
+1. Authenticate user.
+2. Find the internal payment record by order ID.
+3. Verify signature.
+4. Verify order/payment state.
+5. Verify amount.
+6. Verify currency.
+7. Verify expected plan.
+8. Ensure payment has not already been processed.
+9. Mark payment as captured/successful.
+10. Create/update entitlement.
+11. Record audit information.
+12. Return the updated access status.
+
+This endpoint must be IDEMPOTENT.
+
+Calling it twice must not give the user duplicate access.
+
+==================================================
+12. IDEMPOTENCY
+==================================================
+
+Payment processing MUST be idempotent.
+
+A user should never receive:
+
+two 6-month entitlements
+
+because:
+- they refreshed the page
+- frontend retried
+- webhook arrived twice
+- verification endpoint was called twice
+- network retry occurred
+
+Use unique constraints where appropriate for:
+
+razorpay_order_id
+razorpay_payment_id
+razorpay_subscription_id
+webhook/event ID if supported by the existing architecture
+
+Use database transactions for entitlement activation.
+
+==================================================
+13. RAZORPAY WEBHOOK
+==================================================
+
+Implement:
+
+POST /api/webhooks/razorpay
+
+This endpoint must NOT require normal user authentication.
+
+It must authenticate Razorpay webhook requests using:
+
+X-Razorpay-Signature
+
+and:
+
+RAZORPAY_WEBHOOK_SECRET
+
+IMPORTANT:
+
+Verify the signature against the RAW request body.
+
+Do not:
+1. parse JSON
+2. modify JSON
+3. stringify it again
+4. then verify
+
+The signature must be verified against the original raw body.
+
+Use HMAC-SHA256.
+
+Reject invalid signatures.
+
+Return an appropriate HTTP response.
+
+==================================================
+14. WEBHOOK IDEMPOTENCY
+==================================================
+
+Webhook delivery can be repeated.
+
+Therefore:
+
+Do not process the same webhook event more than once.
+
+Store the webhook/event identifier where supported.
+
+If an event has already been processed:
+
+return success without applying the entitlement again.
+
+==================================================
+15. RELEVANT WEBHOOK EVENTS
+==================================================
+
+Implement the relevant Razorpay events required to maintain payment/subscription state.
+
+For one-time payments, handle relevant payment/order state events according to the Razorpay integration.
+
+For subscriptions, handle relevant lifecycle events such as:
+
+subscription activated
+subscription charged
+subscription paused
+subscription resumed
+subscription halted
+subscription cancelled
+subscription completed
+
+Use the exact event names supported by the Razorpay SDK/API version being used.
+
+Do not invent event names.
+
+Subscription webhook processing should update Sankalp's internal Subscription record.
+
+==================================================
+16. MONTHLY SUBSCRIPTION ACCESS
+==================================================
+
+For the ₹179 monthly plan:
+
+When subscription becomes active:
+
+activate paid access.
+
+When Razorpay successfully charges the next billing cycle:
+
+extend the entitlement appropriately.
+
+Do not blindly add months based only on client requests.
+
+Use the verified Razorpay subscription/payment event.
+
+If the subscription is cancelled:
+
+allow access according to the actual paid-through period.
+
+Do not immediately remove access if the user has already paid for the current billing period.
+
+When the paid period ends:
+
+remove unlimited paid-room access.
+
+The user should then fall back to remaining lifetime free minutes if any remain.
+
+==================================================
+17. 24-HOUR FOCUS PASS
+==================================================
+
+When ₹14 payment is successfully verified:
+
+Create an entitlement lasting exactly 24 hours.
+
+Example:
+
+Payment verified:
+10:30 AM
+
+Access expires:
+10:30 AM next day
+
+Use server time.
+
+Do not use the user's browser clock.
+
+If the user buys another 24-hour pass while one is already active, define behavior safely.
+
+Preferred behavior:
+
+Extend from the current entitlement expiry rather than accidentally shortening the existing paid period.
+
+For example:
+
+Current expiry = tomorrow 10 AM
+New pass purchased today at 8 PM
+
+New expiry = day after tomorrow 10 AM
+
+Do not create overlapping confusing entitlement states.
+
+==================================================
+18. 6-MONTH PLAN
+==================================================
+
+When ₹699 payment is verified:
+
+Create 6-month paid entitlement.
+
+Use server-side date calculation.
+
+If an existing paid entitlement is active:
+
+extend from the current paid expiry instead of shortening it.
+
+Example:
+
+Existing expiry = January 1
+New 6-month payment = December 15
+
+New expiry should be calculated from the existing paid-through date according to the product entitlement policy.
+
+Do not allow client-side manipulation of expiry dates.
+
+==================================================
+19. YEARLY PLAN
+==================================================
+
+When ₹999 payment is verified:
+
+Create 12-month paid entitlement.
+
+Use server-side date calculation.
+
+If existing paid access is active, extend from the existing paid-through date.
+
+==================================================
+20. ACCESS CONTROL
+==================================================
+
+Create/use one authoritative function/service such as:
+
+getLiveRoomAccess(userId)
+
+It must return information similar to:
+
+{
+  "canJoin": true,
+  "accessType": "PAID",
+  "freeMinutesRemaining": 60,
+  "paidUntil": "...",
+  "plan": "MONTHLY"
+}
+
+Possible access types:
+
+FREE
+FOCUS_PASS
+MONTHLY
+SIX_MONTH
+YEARLY
+
+The live-room join endpoint MUST call this server-side.
+
+The frontend alone must never decide whether a user is allowed into a live room.
+
+==================================================
+21. FREE 60-MINUTE TRACKING
+==================================================
+
+The existing study-session/live-room tracking system must remain server authoritative.
+
+The server must track actual live-room usage.
+
+Do not trust:
+
+{
+  "duration": 3600
+}
+
+from the client.
+
+The client may send:
+- join
+- leave
+- heartbeat
+- session ID
+
+The server calculates actual duration using server timestamps.
+
+Free usage must be accumulated globally per user.
+
+Prevent bypass through:
+
+- multiple rooms
+- multiple browser tabs
+- logout/login
+- changing devices
+- refreshing
+- leaving/rejoining
+- manipulating browser time
+- changing system time
+- directly calling room APIs
+- modifying localStorage
+
+Use server/database state.
+
+==================================================
+22. PRICING PAGE
+==================================================
+
+Update the existing Sankalp pricing page.
+
+Display:
+
+FREE
+₹0
+
+FOCUS PASS
+₹14
+24 hours of unlimited live study-room access
+One-time payment
+
+MONTHLY
+₹179/month
+Unlimited live study-room access
+Recurring subscription
+
+6 MONTHS
+₹699
+Unlimited live study-room access
+6 months
+
+YEARLY
+₹999
+Unlimited live study-room access
+12 months
+
+Clearly label the ₹14 plan:
+
+"24-Hour Focus Pass"
+
+Do NOT describe it as:
+
+"₹14/day subscription"
+
+It is a ONE-TIME 24-hour pass.
+
+The ₹179 plan must clearly indicate that it is recurring.
+
+==================================================
+23. CHECKOUT UX
+==================================================
+
+When user clicks:
+
+Get Focus Pass
+Subscribe Monthly
+Get 6 Months
+Get Yearly
+
+show a loading state.
+
+Disable duplicate clicks.
+
+Open Razorpay Checkout.
+
+Use Sankalp branding where supported.
+
+Prefill authenticated user information when appropriate:
+
+name
+email
+phone
+
+Do not expose sensitive server secrets.
+
+==================================================
+24. SUCCESS UX
+==================================================
+
+After successful verified payment:
+
+Show a clear success state.
+
+Example:
+
+"Payment successful"
+
+"Your Focus Pass is active until [date/time]."
+
+For monthly:
+
+"Your Sankalp Monthly plan is active."
+
+For 6 months:
+
+"Your 6-month access is active."
+
+For yearly:
+
+"Your yearly access is active."
+
+Then update:
+
+- profile
+- subscription status
+- live-room access
+- pricing page
+- account page
+
+Do not require the user to log out/in.
+
+==================================================
+25. FAILED PAYMENT UX
+==================================================
+
+If payment fails:
+
+Show:
+
+"Payment was not completed."
+
+Do not activate paid access.
+
+Allow the user to retry.
+
+Do not create duplicate orders unnecessarily.
+
+If the failure came from a server verification issue:
+
+Do not claim that payment succeeded.
+
+Show an appropriate "payment verification pending" state when required.
+
+==================================================
+26. PAYMENT PENDING STATE
+==================================================
+
+Support cases where Razorpay payment has not yet reached a final state.
+
+Display:
+
+"Payment verification is in progress."
+
+The user should be able to refresh/check payment status.
+
+Do not grant paid access until server verification confirms the payment.
+
+==================================================
+27. PAYMENT HISTORY
+==================================================
+
+Add/update the user's account billing section.
+
+Display:
+
+Date
+Plan
+Amount
+Status
+Payment ID
+Access period
+
+Example:
+
+23 Sep 2026
+Focus Pass
+₹14
+Paid
+24-hour access
+
+Do not display sensitive Razorpay credentials.
+
+==================================================
+28. SUBSCRIPTION MANAGEMENT
+==================================================
+
+For monthly subscribers show:
+
+Current plan
+Status
+Next billing information if available
+Paid-through date
+Razorpay subscription reference where appropriate
+
+Provide cancellation functionality only if the existing product requirements support it.
+
+If implementing cancellation:
+
+Cancellation must be performed server-side through Razorpay.
+
+Do not simply set:
+
+subscription.status = CANCELLED
+
+without actually handling the Razorpay subscription lifecycle.
+
+==================================================
+29. ADMIN PAYMENT PANEL
+==================================================
+
+Extend the existing Sankalp Admin Panel.
+
+Add/complete:
+
+Payments
+Subscriptions
+Revenue/transaction overview
+
+Admin should be able to see:
+
+- user
+- plan
+- amount
+- currency
+- status
+- Razorpay order ID
+- Razorpay payment ID
+- Razorpay subscription ID
+- created date
+- updated date
+- entitlement start
+- entitlement expiry
+
+Do not expose:
+
+RAZORPAY_KEY_SECRET
+RAZORPAY_WEBHOOK_SECRET
+
+Admin should never be able to view raw secrets.
+
+==================================================
+30. ADMIN FILTERS
+==================================================
+
+Payment admin page should support filtering by:
+
+Plan
+Status
+Date range
+Payment type
+Subscription state
+
+Search by:
+
+User email
+User ID
+Razorpay payment ID
+Razorpay order ID
+Razorpay subscription ID
+
+Add pagination.
+
+Do not load unlimited payment records at once.
+
+==================================================
+31. ADMIN AUDIT LOGGING
+==================================================
+
+Use the existing AuditLog system.
+
+Record important payment-related administrative actions.
+
+Examples:
+
+subscription manually reviewed
+payment refunded
+subscription state changed
+payment access revoked
+payment access restored
+
+Do not allow arbitrary client-side manipulation of payment records.
+
+==================================================
+32. REFUNDS
+==================================================
+
+Do not build fake refund logic.
+
+If refunds are implemented:
+
+use the Razorpay server-side API.
+
+A refund must update the internal Payment/entitlement state appropriately.
+
+Do not allow a client to simply call:
+
+POST /refund
+
+with an arbitrary payment ID.
+
+Require authenticated admin authorization.
+
+Record the action in AuditLog.
+
+If refund functionality is not already required by the current application, structure the data model/API so it can be added safely later rather than inventing a fake refund implementation.
+
+==================================================
+33. SECURITY
+==================================================
+
+Follow these rules strictly.
+
+SERVER ONLY:
+
+RAZORPAY_KEY_SECRET
+RAZORPAY_WEBHOOK_SECRET
+
+FRONTEND SAFE:
+
+RAZORPAY_KEY_ID
+
+Never trust client:
+
+amount
+currency
+plan duration
+plan code entitlement
+payment status
+subscription status
+expiry
+free minutes
+paid access
+
+The server must derive all trusted values.
+
+Validate authenticated user identity.
+
+Prevent users from verifying payments belonging to another user.
+
+A user must not be able to submit another user's order ID and receive access.
+
+Every Razorpay order must map to the authenticated Sankalp user who initiated it.
+
+==================================================
+34. RATE LIMITING
+==================================================
+
+Protect payment endpoints.
+
+Rate-limit:
+
+order creation
+payment verification
+subscription creation
+
+Webhook endpoint should also have appropriate abuse protection while allowing Razorpay traffic.
+
+Do not block legitimate webhook retries.
+
+==================================================
+35. DATABASE TRANSACTIONS
+==================================================
+
+Payment verification and entitlement activation must use database transactions wherever possible.
+
+Example:
+
+BEGIN TRANSACTION
+
+verify internal payment
+mark payment captured
+create/update entitlement
+update subscription/access state
+create audit record if required
+
+COMMIT
+
+If any critical step fails:
+
+ROLLBACK
+
+Do not end up with:
+
+payment marked successful
+but entitlement missing
+
+or:
+
+entitlement active
+but payment not verified
+
+==================================================
+36. DUPLICATE PAYMENT PROTECTION
+==================================================
+
+Prevent:
+
+same Razorpay payment being processed twice.
+
+Use unique database constraints where appropriate.
+
+Before granting entitlement:
+
+check whether the payment has already been applied.
+
+If already applied:
+
+return the existing entitlement instead of creating another one.
+
+==================================================
+37. MOBILE COMPATIBILITY
+==================================================
+
+The future Sankalp Android app will use the SAME backend.
+
+Therefore:
+
+DO NOT create web-only business logic for payment entitlement.
+
+All payment/business rules must live on the server API.
+
+The future Android app should be able to call:
+
+create order
+create subscription
+verify payment
+get payment status
+get current entitlement
+get subscription status
+
+without requiring a separate payment backend.
+
+Update:
+
+docs/mobile-contract.md
+
+if any payment endpoints are added or changed.
+
+Document request/response schemas.
+
+==================================================
+38. API DOCUMENTATION
+==================================================
+
+Update:
+
+docs/api.md
+
+with the final payment endpoints.
+
+Document:
+
+POST /api/payments/razorpay/order
+POST /api/payments/razorpay/verify
+POST /api/payments/razorpay/subscription
+GET /api/payments/history
+GET /api/subscription
+POST /api/webhooks/razorpay
+
+Use the actual existing route conventions if different.
+
+Document authentication requirements.
+
+Document safe response fields.
+
+Do not document secrets.
+
+==================================================
+39. ENVIRONMENT DOCUMENTATION
+==================================================
+
+Update:
+
+.env.example
+
+Include:
+
+RAZORPAY_KEY_ID=
+RAZORPAY_KEY_SECRET=
+RAZORPAY_WEBHOOK_SECRET=
+RAZORPAY_MONTHLY_PLAN_ID=
+
+Also update deployment documentation explaining:
+
+- TEST mode credentials
+- LIVE mode credentials
+- server-only secrets
+- webhook configuration
+- monthly plan ID
+
+Never put the actual Key Secret into documentation.
+
+==================================================
+40. RAZORPAY TEST MODE
+==================================================
+
+The initial implementation MUST use TEST MODE.
+
+Do not use live payment credentials.
+
+Do not make real-money transactions.
+
+Make it easy to switch later by replacing environment variables and Razorpay configuration.
+
+Do not create code that assumes:
+
+rzp_test_...
+
+will always be the production key.
+
+==================================================
+41. TEST CASES
+==================================================
+
+Implement automated tests where the existing project supports testing.
+
+Test at minimum:
+
+1. ₹14 order creation
+2. ₹699 order creation
+3. ₹999 order creation
+4. ₹179 subscription creation
+5. invalid plan
+6. unauthenticated payment creation
+7. modified amount attempt
+8. modified currency attempt
+9. invalid signature
+10. mismatched order ID
+11. mismatched user/order
+12. duplicate payment verification
+13. duplicate webhook
+14. webhook signature failure
+15. free 60-minute access
+16. free access after 60 minutes
+17. paid user unlimited access
+18. expired paid entitlement
+19. paid expiry falling back to remaining free minutes
+20. Focus Pass 24-hour expiry
+21. 6-month entitlement
+22. yearly entitlement
+23. monthly subscription activation
+24. monthly renewal
+25. monthly cancellation
+26. payment failure
+27. payment pending
+28. refresh after successful payment
+29. double-click checkout protection
+30. concurrent payment verification
+
+==================================================
+42. FREE ACCESS SECURITY TESTS
+==================================================
+
+Specifically test bypass attempts.
+
+Test:
+
+User has 60 free minutes.
+
+Then attempts:
+
+join room A
+leave
+join room B
+leave
+join room C
+
+The accumulated server duration must remain correct.
+
+Also test:
+
+two browser tabs
+two devices
+logout/login
+browser refresh
+localStorage modification
+system clock modification
+
+None of these should reset the lifetime free allowance.
+
+==================================================
+43. PAYMENT SECURITY TESTS
+==================================================
+
+Test that a malicious client cannot send:
+
+{
+  "amount": 1
+}
+
+to obtain a ₹14 plan.
+
+The server must still use:
+
+1400 paise.
+
+Test that a client cannot send:
+
+{
+  "duration": "12 months"
+}
+
+for the ₹14 plan.
+
+The server must still grant only:
+
+24 hours.
+
+Test that a client cannot send another user's order ID and receive entitlement.
+
+Test that a client cannot manually set:
+
+paymentStatus = "CAPTURED"
+
+Test that a client cannot manually set:
+
+subscriptionStatus = "ACTIVE"
+
+==================================================
+44. UI STATES
+==================================================
+
+Pricing/payment UI must handle:
+
+idle
+loading
+checkout opened
+payment successful
+payment failed
+payment cancelled
+verification pending
+verification failed
+already subscribed
+active plan
+expired plan
+
+Do not show "Payment Successful" until server verification succeeds.
+
+==================================================
+45. RESPONSIVE DESIGN
+==================================================
+
+Ensure payment UI works on:
+
+desktop
+tablet
+mobile web
+
+Use the existing Sankalp visual system.
+
+Preserve:
+
+emerald primary styling
+saffron/amber accents
+
+Do not introduce a completely different visual design.
+
+Do not use indigo/blue as the primary brand color.
+
+==================================================
+46. NO FAKE DATA
+==================================================
+
+Do not create fake:
+
+payments
+revenue
+subscriptions
+payment counts
+transaction history
+success responses
+
+Razorpay TEST MODE transactions are acceptable because they are actual sandbox transactions.
+
+Do not create mock payment APIs pretending to be Razorpay.
+
+==================================================
+47. EXISTING ARCHITECTURE
+==================================================
+
+First inspect the existing application.
+
+Identify:
+
+- current auth implementation
+- Prisma schema
+- Payment model
+- Subscription model
+- user model
+- access-control service
+- live-room join endpoint
+- admin panel
+- API route structure
+- environment configuration
+- documentation
+- mobile API contract
+
+Then integrate Razorpay into the existing architecture.
+
+Do not duplicate existing services.
+
+Do not replace working components unnecessarily.
+
+==================================================
+48. ERROR HANDLING
+==================================================
+
+Create safe error handling.
+
+Do not expose:
+
+Razorpay API secrets
+internal stack traces
+database credentials
+webhook secrets
+
+to clients.
+
+Log useful server-side information such as:
+
+payment verification failed
+order creation failed
+webhook verification failed
+subscription update failed
+
+But redact credentials and sensitive information.
+
+==================================================
+49. OBSERVABILITY
+==================================================
+
+If Sentry is already configured:
+
+capture important payment integration failures.
+
+If PostHog is already configured:
+
+track safe product events such as:
+
+pricing_viewed
+checkout_started
+payment_verified
+payment_failed
+subscription_started
+subscription_cancelled
+
+Do NOT send:
+
+Key Secret
+Webhook Secret
+full payment credentials
+
+as analytics properties.
+
+==================================================
+50. USER ACCESS AFTER PAYMENT
+==================================================
+
+After successful payment, immediately make the paid entitlement available through the normal access-control service.
+
+The live-room join endpoint should see:
+
+paid access = active
+
+without requiring logout/login.
+
+The pricing page should update.
+
+The account page should update.
+
+The user should be able to enter a live study room.
+
+==================================================
+51. PAYMENT SUCCESS MUST NOT MODIFY STUDY HISTORY
+==================================================
+
+Purchasing a plan must NOT:
+
+- create fake study time
+- add XP
+- add streak days
+- create fake sessions
+- modify leaderboard data
+
+Payment only changes live-room entitlement.
+
+Study metrics continue to be generated by actual study activity.
+
+==================================================
+52. PAYMENT SUCCESS MUST NOT RESET STREAKS
+==================================================
+
+Do not modify:
+
+streak
+XP
+level
+badges
+study history
+
+when payment succeeds.
+
+==================================================
+53. FINAL IMPLEMENTATION CHECK
+==================================================
+
+Before finishing, inspect the complete implementation and verify:
+
+[ ] Razorpay TEST credentials are read from environment variables
+[ ] Key Secret is server-only
+[ ] Webhook secret is separate
+[ ] No secret is hardcoded
+[ ] ₹14 = 1400 paise
+[ ] ₹179 = 17900 paise
+[ ] ₹699 = 69900 paise
+[ ] ₹999 = 99900 paise
+[ ] ₹14 uses one-time Order
+[ ] ₹699 uses one-time Order
+[ ] ₹999 uses one-time Order
+[ ] ₹179 uses Razorpay Subscription
+[ ] Monthly plan ID comes from environment
+[ ] Server creates orders
+[ ] Client cannot choose amount
+[ ] Signature verification is server-side
+[ ] Payment status is verified
+[ ] Webhook signature uses raw body
+[ ] Webhooks are idempotent
+[ ] Payment processing is idempotent
+[ ] Entitlement activation is transactional
+[ ] User/order ownership is verified
+[ ] Free 60-minute allowance remains server-authoritative
+[ ] Paid users have unlimited live-room access
+[ ] Paid access does not reset free allowance
+[ ] Expired paid users fall back to remaining free allowance
+[ ] Focus Pass lasts 24 hours
+[ ] 6-month plan lasts 6 months
+[ ] Yearly plan lasts 12 months
+[ ] Monthly subscription lifecycle is handled
+[ ] Payment history works
+[ ] Admin payment panel works
+[ ] Admin cannot see secrets
+[ ] Mobile API contract is updated
+[ ] API documentation is updated
+[ ] .env.example is updated
+[ ] Tests are added
+[ ] No fake production payment data exists
+[ ] Existing Sankalp functionality still works
+
+==================================================
+54. IMPORTANT IMPLEMENTATION STYLE
+==================================================
+
+Do NOT stop after creating the UI.
+
+This task is NOT just a Razorpay button.
+
+Implement the complete flow:
+
+Pricing
+↓
+Authenticated user
+↓
+Server creates Razorpay Order/Subscription
+↓
+Razorpay Checkout
+↓
+Razorpay TEST payment
+↓
+Server receives payment information
+↓
+Signature verification
+↓
+Server-side payment verification
+↓
+Database transaction
+↓
+Entitlement activation
+↓
+Access-control update
+↓
+Live-room access
+↓
+Payment history
+↓
+Admin visibility
+↓
+Webhook synchronization
+
+Everything important must be server-authoritative.
+
+==================================================
+55. FINAL OUTPUT
+==================================================
+
+After implementation, provide a concise summary containing:
+
+1. Files changed
+2. APIs added/changed
+3. Database changes
+4. Environment variables required
+5. Razorpay TEST setup required
+6. How to test ₹14
+7. How to test ₹179 monthly subscription
+8. How to test ₹699
+9. How to test ₹999
+10. Webhook configuration required
+11. Tests executed and their results
+12. Any remaining configuration that cannot be completed automatically
+
+Do not claim a test passed unless it was actually executed.
+
+Do not claim Razorpay production readiness unless the implementation has actually been validated for production configuration.
+
+Most importantly:
+
+PRESERVE THE EXISTING SANKALP APPLICATION.
+
+IMPLEMENT RAZORPAY AS A REAL SERVER-AUTHORITATIVE PAYMENT SYSTEM, NOT A MOCK.
+
+USE RAZORPAY TEST MODE ONLY FOR THIS IMPLEMENTATION.

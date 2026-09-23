@@ -1,51 +1,19 @@
 "use client"
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { api, ApiError } from "@/lib/api-client"
-import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
 import { useRouter } from "@/lib/router"
-import { Check, Clock, Lock, Zap, Calendar, Crown } from "lucide-react"
-import { toast } from "sonner"
+import { Check, Clock, Lock, Zap, Calendar, Crown, ArrowRight } from "lucide-react"
 
 const PLANS = [
-  {
-    id: "focus_pass", name: "Focus Pass", price: 14, period: "24 hours",
-    desc: "Unlimited room access for 24 hours. No recurring charge.",
-    icon: <Zap className="size-5 text-brand-emerald" />,
-  },
-  {
-    id: "monthly", name: "Monthly", price: 179, period: "per month",
-    desc: "Unlimited room access. Recurring monthly. Cancel anytime.",
-    icon: <Calendar className="size-4 text-brand-emerald" />,
-    highlight: true,
-  },
-  {
-    id: "halfyear", name: "6 Months", price: 699, period: "6 months",
-    desc: "6 months of unlimited access. Save 35% vs monthly.",
-    icon: <Calendar className="size-4 text-amber-500" />,
-  },
-  {
-    id: "yearly", name: "Yearly", price: 999, period: "12 months",
-    desc: "12 months of unlimited access. Save 53% vs monthly.",
-    icon: <Crown className="size-4 text-amber-500" />,
-  },
+  { id: "focus_pass", name: "Focus Pass", price: 14, period: "24 hours", desc: "Unlimited room access for 24 hours. One-time payment.", icon: <Zap className="size-5 text-brand-emerald" /> },
+  { id: "monthly", name: "Monthly", price: 179, period: "per month", desc: "Unlimited room access. Recurring monthly. Cancel anytime.", icon: <Calendar className="size-4 text-brand-emerald" />, highlight: true },
+  { id: "halfyear", name: "6 Months", price: 699, period: "6 months", desc: "6 months of unlimited access. Save 35% vs monthly.", icon: <Calendar className="size-4 text-amber-500" /> },
+  { id: "yearly", name: "Yearly", price: 999, period: "12 months", desc: "12 months of unlimited access. Save 53% vs monthly.", icon: <Crown className="size-4 text-amber-500" /> },
 ]
 
 export function PaywallView() {
   const { navigate } = useRouter()
-  const qc = useQueryClient()
-
-  const purchase = useMutation({
-    mutationFn: (plan: string) => api.post("/subscriptions", { plan }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["subscription"] })
-      qc.invalidateQueries({ queryKey: ["me"] })
-      toast.success("Payment successful! Plan activated.")
-      navigate("/rooms", { replace: true })
-    },
-    onError: (e: ApiError) => toast.error(e.message),
-  })
 
   return (
     <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12 hero-glow">
@@ -67,10 +35,7 @@ export function PaywallView() {
 
         <div className="grid sm:grid-cols-2 gap-3">
           {PLANS.map((plan) => (
-            <Card
-              key={plan.id}
-              className={`relative ${plan.highlight ? "border-primary ring-2 ring-primary/20" : ""}`}
-            >
+            <Card key={plan.id} className={`relative ${plan.highlight ? "border-primary ring-2 ring-primary/20" : ""}`}>
               {plan.highlight && (
                 <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 text-[10px] font-semibold bg-brand-gradient text-white px-2.5 py-0.5 rounded-full whitespace-nowrap">
                   Best value
@@ -89,13 +54,8 @@ export function PaywallView() {
                 <div className="flex items-center gap-1.5 text-xs text-brand-emerald mb-4">
                   <Check className="size-3" /> Unlimited live study-room access
                 </div>
-                <Button
-                  className="w-full"
-                  variant={plan.highlight ? "default" : "outline"}
-                  disabled={purchase.isPending}
-                  onClick={() => purchase.mutate(plan.id)}
-                >
-                  {purchase.isPending && purchase.variables === plan.id ? "Processing…" : `Get ${plan.name}`}
+                <Button className="w-full" variant={plan.highlight ? "default" : "outline"} onClick={() => navigate("/pricing")}>
+                  Get {plan.name} <ArrowRight className="size-4" />
                 </Button>
               </CardContent>
             </Card>

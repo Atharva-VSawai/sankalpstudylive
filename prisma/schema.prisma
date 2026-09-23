@@ -402,10 +402,13 @@ model Subscription {
   userId      String   @unique
   // plan: free | focus_pass | monthly | halfyear | yearly
   plan        String   @default("free")
-  status      String   @default("active") // active | expired | canceled | past_due
+  // status: active | expired | canceled | pending | past_due | halted
+  status      String   @default("active")
   startedAt   DateTime @default(now())
   expiresAt   DateTime? // when the paid plan expires (null for free)
   renewsAt    DateTime? // when a recurring plan renews (monthly only)
+  // Razorpay subscription ID (for monthly recurring only)
+  razorpaySubscriptionId String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -417,16 +420,33 @@ model Payment {
   userId      String
   amount      Int // in paise (INR)
   currency    String   @default("INR")
-  plan        String // focus_pass | monthly | halfyear | yearly
+  // plan: focus_pass | monthly | halfyear | yearly
+  plan        String
   provider    String   @default("razorpay")
-  providerRef String? // razorpay order_id / payment_id
-  status      String   @default("pending") // pending | paid | failed | refunded
+  // Razorpay order ID (created server-side, unique)
+  razorpayOrderId     String?  @unique
+  // Razorpay payment ID (returned after checkout, unique)
+  razorpayPaymentId   String?  @unique
+  // Razorpay subscription ID (for monthly recurring only)
+  razorpaySubscriptionId String?
+  // status: pending | authorized | captured | failed | refunded
+  status      String   @default("pending")
+  // Webhook event ID for idempotency
+  webhookEventId String?
+  // Entitlement dates set after successful verification
+  entitlementStart  DateTime?
+  entitlementEnd    DateTime?
+  // Failure reason if applicable
+  failureReason String?
   createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([status])
+  @@index([plan])
+  @@index([razorpayOrderId])
 }
 
 model UserDevice {
