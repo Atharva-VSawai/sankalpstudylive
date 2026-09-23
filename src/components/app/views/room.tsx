@@ -6,11 +6,11 @@ import { api, getToken } from "@/lib/api-client"
 import { Avatar } from "@/components/app/brand"
 import { useRouter, Link } from "@/lib/router"
 import { useAuth } from "@/lib/auth-context"
-import { Video, VideoOff, PhoneOff, Play, Pause, Square, RotateCcw, Settings2, ChevronLeft, Coffee, Timer as TimerIcon, Headphones, SkipForward } from "lucide-react"
+import { Video, VideoOff, PhoneOff, Play, Pause, Square, RotateCcw, Settings2, ChevronLeft, Coffee, Timer as TimerIcon, Headphones, SkipForward, Pin, PinOff, Maximize2, Minimize2 } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { AmbientSounds } from "@/components/app/ambient-sounds"
-import { Room, RoomEvent, Track, Participant, ConnectionState } from "livekit-client"
+import { Room, RoomEvent, Track, Participant, ParticipantEvent, ConnectionState } from "livekit-client"
 
 // ── Types ──
 type PomodoroConfig = { focusMin: number; breakMin: number; longBreakMin: number; rounds: number }
@@ -43,6 +43,7 @@ export function RoomView({ id }: { id: string }) {
   const [showSettings, setShowSettings] = useState(false)
   const [showAmbient, setShowAmbient] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [pinnedId, setPinnedId] = useState<string | null>(null)
   const lkRoomRef = useRef<Room | null>(null)
   const sessionIdRef = useRef<string | null>(null)
   const heartbeatRef = useRef<any>(null)
@@ -294,7 +295,7 @@ export function RoomView({ id }: { id: string }) {
       )}
 
       {/* ── Participant grid (real LiveKit participants) ── */}
-      <div className="flex-1 overflow-y-auto scroll-thin p-3 md:p-4">
+      <div className="flex-1 overflow-hidden p-2 md:p-3">
         {!isConnected ? (
           <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
             {connectionState === ConnectionState.Reconnecting ? "Reconnecting…" : "Connecting to study room…"}
@@ -303,11 +304,30 @@ export function RoomView({ id }: { id: string }) {
           <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
             You're the first one here. Start studying!
           </div>
+        ) : pinnedId && participants.some((p) => p.identity === pinnedId) ? (
+          /* ── Pinned layout: featured tile fills the stage, others are a thumbnail strip ── */
+          <PinnedLayout
+            participants={participants}
+            pinnedId={pinnedId}
+            myId={me?.id}
+            onUnpin={() => setPinnedId(null)}
+            onPin={(pid) => setPinnedId(pid)}
+          />
         ) : (
-          <div className={cn("grid gap-2 md:gap-3 mx-auto max-w-7xl", gridClass(count))}>
-            {participants.map((p) => (
-              <ParticipantTile key={p.identity} participant={p} isMe={p.identity === me?.id} />
-            ))}
+          /* ── Default responsive grid ── */
+          <div className="h-full w-full">
+            <div className={cn("grid h-full w-full mx-auto gap-2 md:gap-3 auto-rows-fr", responsiveGridClass(count))}>
+              {participants.map((p) => (
+                <ParticipantTile
+                  key={p.identity}
+                  participant={p}
+                  isMe={p.identity === me?.id}
+                  isPinned={false}
+                  onPin={(pid) => setPinnedId(pid)}
+                  onUnpin={() => setPinnedId(null)}
+                />
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -349,44 +369,186 @@ export function RoomView({ id }: { id: string }) {
 }
 
 // ── Real LiveKit participant tile ──
-function ParticipantTile({ participant, isMe }: { participant: Participant; isMe?: boolean }) {
+// Renders a real LiveKit camera track. Handles both local (LocalVideoTrack)
+// and remote (RemoteVideoTrack) participants. Listens to participant track
+// events so the tile updates when the user toggles their camera on/off.
+// Pin/unpin controls appear on hover; pinning promotes the tile to full stage.
+function ParticipantTile({
+  participant,
+  isMe,
+  isPinned = false,
+  onPin,
+  onUnpin,
+  fill = false,
+}: {
+  participant: Participant
+  isMe?: boolean
+  isPinned?: boolean
+  onPin?: (id: string) => void
+  onUnpin?: () => void
+  fill?: boolean // when true (pinned stage / thumbnails), show a larger avatar placeholder
+}) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [hasVideo, setHasVideo] = useState(false)
 
   useEffect(() => {
-    const videoTrack = participant.getTrackPublication(Track.Source.Camera)
-    if (videoTrack && videoTrack.track) {
-      const el = videoRef.current
-      if (el) {
-        videoTrack.track.attach(el)
-        // Defer setState to avoid synchronous setState in effect
-        requestAnimationFrame(() => setHasVideo(true))
+    const el = videoRef.current
+    if (!el) return
+
+    let attachedTrack: any = null
+
+    // Re-evaluate the camera publication and attach/detach the track.
+    const syncTrack = () => {
+      const pub = participant.getTrackPublication(Track.Source.Camera)
+      const track = pub?.track ?? null
+      if (track === attachedTrack) return // no change
+      // detach previous
+      if (attachedTrack) {
+        try { attachedTrack.detach(el) } catch {}
+        attachedTrack = null
       }
-      return () => { if (el && videoTrack.track) videoTrack.track.detach(el) }
-    } else {
-      // Defer setState
-      requestAnimationFrame(() => setHasVideo(false))
+      // attach new
+      if (track) {
+        try {
+          track.attach(el)
+          attachedTrack = track
+          setHasVideo(true)
+        } catch {
+          setHasVideo(false)
+        }
+      } else {
+        setHasVideo(false)
+      }
+    }
+
+    // Initial sync (camera may already be on)
+    syncTrack()
+
+    // Re-sync on track lifecycle events (covers both local and remote)
+    const events = [
+      ParticipantEvent.TrackPublished,
+      ParticipantEvent.TrackUnpublished,
+      ParticipantEvent.TrackSubscribed,
+      ParticipantEvent.TrackUnsubscribed,
+      ParticipantEvent.LocalTrackPublished,
+      ParticipantEvent.LocalTrackUnpublished,
+    ]
+    const handler = () => syncTrack()
+    for (const ev of events) participant.on(ev, handler)
+
+    // Also poll briefly as a safety net for track readiness races
+    const poll = setInterval(syncTrack, 2000)
+
+    return () => {
+      clearInterval(poll)
+      for (const ev of events) participant.off(ev, handler)
+      if (attachedTrack) {
+        try { attachedTrack.detach(el) } catch {}
+        attachedTrack = null
+      }
     }
   }, [participant])
 
   const name = participant.name || participant.identity
   const initials = name.split(" ").map((n) => n[0]).slice(0, 2).join("").toUpperCase()
+  const canPin = !!onPin && !!onUnpin
 
   return (
-    <div className="relative aspect-video rounded-xl overflow-hidden border bg-gradient-to-br from-emerald-950/30 to-emerald-800/10 flex items-center justify-center">
-      {hasVideo ? (
-        <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
-      ) : (
-        <div className="flex flex-col items-center gap-2">
-          <Avatar name={name} size={64} />
+    <div
+      className={cn(
+        "group relative rounded-xl overflow-hidden border bg-gradient-to-br from-emerald-950/30 to-emerald-800/10 flex items-center justify-center min-h-0 w-full h-full",
+        isPinned && "ring-2 ring-brand-emerald"
+      )}
+    >
+      {/* Always render the <video> element so ref is available for track attach.
+          Hidden via opacity when no video, so the placeholder shows underneath. */}
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted={isMe /* avoid echo for local preview; remote has no audio anyway */}
+        className={cn("w-full h-full object-cover transition-opacity", hasVideo ? "opacity-100" : "opacity-0 absolute inset-0")}
+      />
+      {!hasVideo && (
+        <div className="absolute inset-0 flex flex-col items-center gap-2 justify-center">
+          <Avatar name={name} size={fill ? 96 : 64} />
           <span className="text-xs text-muted-foreground">Camera off</span>
         </div>
       )}
-      <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between">
+      {/* Name label (bottom-left) */}
+      <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between pointer-events-none">
         <span className="text-xs font-medium text-white bg-black/40 backdrop-blur px-1.5 py-0.5 rounded truncate max-w-full">
           {name}{isMe && " (you)"}
         </span>
       </div>
+      {/* Pin / Unpin button (top-right, visible on hover) */}
+      {canPin && (
+        <button
+          onClick={() => (isPinned ? onUnpin!() : onPin!(participant.identity))}
+          className={cn(
+            "absolute top-1.5 right-1.5 inline-flex items-center justify-center size-8 rounded-lg bg-black/40 backdrop-blur text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/60",
+            isPinned && "opacity-100 bg-brand-emerald/80"
+          )}
+          title={isPinned ? "Unpin" : "Pin to full screen"}
+          aria-label={isPinned ? "Unpin participant" : "Pin participant to full screen"}
+        >
+          {isPinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
+        </button>
+      )}
+    </div>
+  )
+}
+
+// ── Pinned layout: featured (pinned) participant fills the stage,
+//    remaining participants render as a horizontal thumbnail strip below.
+function PinnedLayout({
+  participants,
+  pinnedId,
+  myId,
+  onUnpin,
+  onPin,
+}: {
+  participants: Participant[]
+  pinnedId: string
+  myId?: string
+  onUnpin: () => void
+  onPin: (id: string) => void
+}) {
+  const pinned = participants.find((p) => p.identity === pinnedId) ?? participants[0]
+  const others = participants.filter((p) => p.identity !== pinned.identity)
+
+  return (
+    <div className="flex flex-col h-full w-full gap-2">
+      {/* Featured (pinned) tile fills the available stage */}
+      <div className="flex-1 min-h-0 relative">
+        <ParticipantTile
+          participant={pinned}
+          isMe={pinned.identity === myId}
+          isPinned
+          onPin={onPin}
+          onUnpin={onUnpin}
+          fill
+        />
+      </div>
+      {/* Thumbnail strip for the remaining participants (scrolls if many) */}
+      {others.length > 0 && (
+        <div className="flex-shrink-0 overflow-x-auto scroll-thin pb-1">
+          <div className="flex gap-2">
+            {others.map((p) => (
+              <div key={p.identity} className="w-[140px] sm:w-[160px] md:w-[200px] aspect-video flex-shrink-0">
+                <ParticipantTile
+                  participant={p}
+                  isMe={p.identity === myId}
+                  isPinned={false}
+                  onPin={onPin}
+                  onUnpin={onUnpin}
+                  fill
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -403,14 +565,30 @@ function ControlBtn({ active, onClick, on, off, label }: { active: boolean; onCl
   )
 }
 
-// ── Responsive grid class ──
-function gridClass(n: number): string {
-  if (n <= 1) return "grid-cols-1 max-w-2xl"
-  if (n <= 4) return "grid-cols-2 md:grid-cols-2 lg:grid-cols-3"
-  if (n <= 9) return "grid-cols-2 md:grid-cols-3 lg:grid-cols-4"
-  if (n <= 16) return "grid-cols-2 md:grid-cols-4 lg:grid-cols-4"
-  if (n <= 25) return "grid-cols-2 md:grid-cols-5 lg:grid-cols-5"
-  return "grid-cols-2 md:grid-cols-6 lg:grid-cols-6"
+// ── Responsive grid class (Google Meet / Zoom style) ──
+// Tiles shrink as participant count grows, but never become unusably small.
+// Each tile keeps an aspect-video shape so faces stay visible.
+// Breakpoints: mobile (sm/md) uses fewer columns; desktop (lg+) uses more.
+// The grid fills the full stage height so tiles auto-shrink to fit.
+function responsiveGridClass(n: number): string {
+  // 1 participant: single tile, centered, capped to a sensible max width.
+  if (n <= 1) return "grid-cols-1 max-w-3xl mx-auto"
+  // 2 participants: side-by-side on all sizes.
+  if (n === 2) return "grid-cols-1 sm:grid-cols-2 max-w-5xl mx-auto"
+  // 3–4 participants: 2 per row on mobile, up to 2 on desktop.
+  if (n <= 4) return "grid-cols-2 max-w-5xl mx-auto"
+  // 5–6 participants: 2 on mobile, 3 on desktop.
+  if (n <= 6) return "grid-cols-2 lg:grid-cols-3 max-w-6xl mx-auto"
+  // 7–9 participants: 3 per row on mobile, 3 on desktop.
+  if (n <= 9) return "grid-cols-3 max-w-6xl mx-auto"
+  // 10–12 participants: 3 on mobile, 4 on desktop.
+  if (n <= 12) return "grid-cols-3 lg:grid-cols-4 max-w-7xl mx-auto"
+  // 13–16 participants: 4 per row on all sizes.
+  if (n <= 16) return "grid-cols-4 max-w-7xl mx-auto"
+  // 17–25 participants: 5 per row on desktop, 4 on mobile.
+  if (n <= 25) return "grid-cols-4 lg:grid-cols-5 max-w-7xl mx-auto"
+  // 26+: 6 per row on desktop, 4 on mobile (very dense but still usable).
+  return "grid-cols-4 lg:grid-cols-6 max-w-7xl mx-auto"
 }
 
 // ── Pomodoro settings dialog ──

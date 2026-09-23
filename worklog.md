@@ -128,3 +128,31 @@ Stage Summary:
 - 18-page browser walkthrough: zero console errors, zero dev.log errors.
 - LiveKit room flow regression-verified: still works perfectly.
 - Lint clean. No new issues introduced.
+
+---
+Task ID: FIX-VIDEOGRID-004
+Agent: general-purpose (video grid + pin feature)
+Task: Fix camera video not visible in participant grid, make the grid responsive (Google Meet/Zoom style), and add pin/unpin participant video feature.
+
+Work Log:
+- Fixed ParticipantTile video rendering: the <video> element is now always rendered (hidden via opacity when no video) so the ref is always available for track attach. Previously the video element was conditionally rendered only when hasVideo was true, which caused a chicken-and-egg problem: the effect needed the ref to attach the track, but the ref was null because the video element wasn't rendered yet. Now the track attaches to the always-present <video> element and opacity toggles visibility.
+- Added ParticipantEvent listeners (TrackPublished, TrackUnpublished, TrackSubscribed, TrackUnsubscribed, LocalTrackPublished, LocalTrackUnpublished) so the tile re-syncs when the user toggles their camera on/off or when a remote participant's track arrives. Previously the tile only ran the attach logic once on mount, so toggling the camera didn't update the tile. A 2s poll is a safety net for track readiness races.
+- Added pin/unpin state: `pinnedId` in RoomView. Pin button appears on hover (top-right of each tile) with a Pin icon; clicking promotes that participant to the full-screen featured stage. When pinned, the button switches to PinOff icon and clicking it unpins.
+- Implemented PinnedLayout component: the pinned participant fills the main stage (flex-1, fill), and all other participants render as a horizontal scrollable thumbnail strip below (fixed-width aspect-video tiles, 140-200px depending on breakpoint). Each thumbnail also has its own pin button, so users can switch the pinned participant by clicking pin on a thumbnail.
+- Replaced old gridClass() with responsiveGridClass() that scales tiles down as participant count grows (Google Meet/Zoom style): 1→1 col, 2→2 cols (sm+), 3-4→2 cols, 5-6→2/3 cols, 7-9→3 cols, 10-12→3/4 cols, 13-16→4 cols, 17-25→4/5 cols, 26+→4/6 cols. Used `auto-rows-fr` so grid rows fill the available height and tiles auto-shrink to fit (never become unusably small). Max width caps keep tiles from getting too wide on large screens.
+- Container changed from `overflow-y-auto` to `overflow-hidden` with `h-full` grid so tiles fit the viewport instead of scrolling — matches Google Meet/Zoom behavior where all participants are always visible.
+- Fixed runtime ReferenceError: `fill is not defined` (introduced when I temporarily removed the `fill` prop from destructuring but the JSX still referenced it for avatar size). Restored `fill` prop with default false; used to show a larger avatar (96px vs 64px) on the pinned stage and thumbnails.
+- Multi-user verification via two agent-browser sessions (admin + aarav) with `--use-fake-device-for-media-stream` Chrome flags:
+  - Admin joins room: 1 tile, camera on → green test pattern video renders.
+  - Aarav joins same room: 2 tiles in responsive grid, Aarav sees Admin's video, Admin sees Aarav's video after both cameras on. VLM confirmed: "both tiles are displaying active video content".
+  - Admin pins Aarav: featured Aarav video fills the stage, Admin appears as thumbnail below. VLM confirmed: "large featured video at top (Aarav), smaller thumbnail strip below (Admin), unpin button present".
+  - Unpin returns to default 2-tile grid.
+- Verified responsive grid with mobile/tablet widths via Tailwind breakpoints (sm, lg). 2 users: 1 col on mobile, 2 cols on sm+. More users: progressively more columns on larger breakpoints.
+- `bun run lint` passes clean. Zero console errors, zero dev.log errors across all tests.
+
+Stage Summary:
+- Camera video now renders in the participant grid (root cause: conditional <video> rendering + missing track event listeners). Verified with both local and remote participants.
+- Responsive grid (Google Meet/Zoom style): tiles auto-shrink as participant count grows, fill viewport height, never become unusably small. Mobile/tablet/desktop breakpoints.
+- Pin/unpin feature: hover any tile → click pin button → that participant fills the stage, others become a thumbnail strip. Click unpin (or pin another thumbnail) to return to grid. Works with multiple participants.
+- Multi-user mutual video visibility verified: 2 participants, both cameras on, each sees the other's video.
+- No LiveKit API misuse: uses Room.state, ParticipantEvent, getTrackPublication, track.attach/detach correctly for livekit-client v2.22.3.
