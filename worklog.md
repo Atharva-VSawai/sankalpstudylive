@@ -249,3 +249,28 @@ Work Log:
 Stage Summary:
 - Pinned layout: horizontal (pinned big-left, self + others vertical strip on right). No more "pinned video cutting and grid goes to bottom".
 - Quality cap persistence: setVideoDimensions is the primary cap (Adaptive Stream respects it as max). Re-asserted on TrackStreamStateChanged + every 3s. This fixes the "starts low, then goes back to original quality" billing issue — the subscribed layer now stays at/below the policy max (free=240p, paid=360p) for the entire subscription lifetime, regardless of how large the rendered video element is.
+
+---
+Task ID: COMMUNITY-LIMIT-008
+Agent: general-purpose (max-2 community membership limit)
+Task: Enforce a maximum of 2 community memberships per user, server-side, with race-condition protection, UI updates, and profile display.
+
+Work Log:
+- Inspected existing: CommunityMember model already has @@unique([communityId, userId]) (prevents duplicate joins). join endpoint had NO max-2 check. leave endpoint exists. onboarding auto-joins 1 community. Communities view used local `joined` state (not server-derived). Profile endpoint didn't include memberships.
+- Rewrote src/app/api/communities/[slug]/join/route.ts: added MAX_COMMUNITY_MEMBERSHIPS=2. The join uses a Prisma transaction with `SELECT 1 FROM "User" WHERE id = ? FOR UPDATE` to SERIALIZE concurrent joins for the same user (closes the race condition that let 3 concurrent requests all see count=1 and all create). Inside the lock: check already-member, count memberships, reject if >= 2, create, post-create safety check + rollback. Handles P2002 (duplicate) as ALREADY_MEMBER. Returns forbidden("COMMUNITY_LIMIT_REACHED") when at the limit.
+- Updated src/app/api/onboarding/route.ts: the auto-join now checks existing membership + count before creating (defensive; a new user has 0 so this is always allowed, but the guard prevents a re-run from exceeding 2). Fixed a pre-existing bug where memberCount was incremented even on `update` (re-join).
+- Updated src/app/api/profile/route.ts GET: now includes `memberships` (the user's actual CommunityMember rows with community details), `membershipCount`, and `maxMemberships: 2`.
+- Rewrote src/components/app/views/communities.tsx: fetches the user's profile to derive joined communities + membership count. Shows "X/2 communities joined · You can join up to 2 communities." Joined communities show "Joined" (disabled). At the limit, all other communities show "Limit reached" (disabled, with Lock icon). Toast shows the limit message on COMMUNITY_LIMIT_REACHED. Invalidates the profile query on success so the UI updates immediately.
+- Updated src/components/app/views/profile.tsx: added a "Communities" card showing the user's actual memberships (color tile + name + exam goal + View link). Shows "X/2 joined" in the header. When 0 memberships, shows a "Browse communities" CTA. When < 2, shows "You can join N more communit(y/ies)."
+- Race-condition test: 3 concurrent joins (gate + jee + neet) at 1 membership → exactly 1 succeeded (jee), 2 rejected → final count = 2. The FOR UPDATE lock works. (Without the lock, the count=1 check passed for all 3 and the user ended up with 3 memberships — confirmed the race was real before the fix.)
+- All API tests passed: A (join UPSC → 1), B (join DSA → 2), C (join GATE → COMMUNITY_LIMIT_REACHED), D (join JEE → COMMUNITY_LIMIT_REACHED), E (profile shows 2), I (concurrent → invariant holds), leave + rejoin (works), duplicate (ALREADY_MEMBER).
+- Browser: Communities page shows "2/2 communities joined", DSA+JEE show "Joined", all others show "Limit reached" (disabled). VLM confirmed. Profile → Communities shows DSA + JEE tiles with "2/2 joined".
+- `bun run lint` passes clean.
+
+Stage Summary:
+- Server-side max-2 enforcement: join endpoint uses Prisma transaction + SELECT...FOR UPDATE on the User row to serialize concurrent joins. Race-condition proof (verified with 3 concurrent requests). A malicious user calling the API directly is rejected with COMMUNITY_LIMIT_REACHED.
+- (userId, communityId) @@unique constraint already existed (prevents duplicate joins). Leave endpoint already existed (frees a slot).
+- Onboarding auto-joins 1 community (always within the limit for a new user); the guard prevents re-runs from exceeding 2.
+- Communities page: server-derived joined status + membership count; "Joined" for joined, "Limit reached" (disabled) at the limit; "You can join up to 2 communities" message.
+- Profile: Communities card shows the user's actual memberships with a "X/2 joined" header and a "browse" CTA when < 2.
+- The 30-minute free live-room allowance remains GLOBAL and separate from community membership (unchanged).

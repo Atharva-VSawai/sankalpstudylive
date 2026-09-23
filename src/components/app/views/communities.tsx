@@ -8,7 +8,10 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Avatar, LiveDot } from "@/components/app/brand"
 import { Link } from "@/lib/router"
-import { Search, Users, Video, Check } from "lucide-react"
+import { Search, Users, Video, Check, Lock } from "lucide-react"
+import { toast } from "sonner"
+
+const MAX_MEMBERSHIPS = 2
 
 export function CommunitiesView() {
   const [q, setQ] = useState("")
@@ -17,6 +20,15 @@ export function CommunitiesView() {
     queryKey: ["communities", q],
     queryFn: () => api.get<{ communities: any[] }>("/communities", { q: q || undefined }),
   })
+  // Fetch the user's current memberships so we can show "Joined" and disable
+  // Join at the max-2 limit. The server is the source of truth; this is just
+  // for UI. A malicious user calling the join API directly is still rejected
+  // server-side with COMMUNITY_LIMIT_REACHED.
+  const { data: profile } = useQuery({ queryKey: ["profile", "me"], queryFn: () => api.get<any>("/profile") })
+  const myCommunities = (profile?.memberships ?? []).map((m: any) => m.community.slug)
+  const membershipCount = profile?.membershipCount ?? 0
+  const atLimit = membershipCount >= MAX_MEMBERSHIPS
+
   const communities = data?.communities ?? []
 
   return (
@@ -26,15 +38,25 @@ export function CommunitiesView() {
           <h1 className="text-2xl font-bold">Communities</h1>
           <p className="text-muted-foreground">Join aspirants preparing for the same exam.</p>
         </div>
-        <div className="relative w-full sm:w-72">
-          <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search communities…" className="pl-9" />
+        <div className="flex flex-col items-end gap-2">
+          <div className="relative w-full sm:w-72">
+            <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search communities…" className="pl-9" />
+          </div>
+          <span className={`text-xs font-medium ${atLimit ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>
+            {membershipCount}/{MAX_MEMBERSHIPS} communities joined · You can join up to {MAX_MEMBERSHIPS} communities.
+          </span>
         </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {communities.map((c) => (
-          <CommunityCard key={c.id} community={c} />
+          <CommunityCard
+            key={c.id}
+            community={c}
+            isJoined={myCommunities.includes(c.slug)}
+            atLimit={atLimit}
+          />
         ))}
       </div>
       {communities.length === 0 && (
@@ -44,15 +66,24 @@ export function CommunitiesView() {
   )
 }
 
-function CommunityCard({ community }: { community: any }) {
+function CommunityCard({ community, isJoined, atLimit }: { community: any; isJoined: boolean; atLimit: boolean }) {
   const qc = useQueryClient()
-  const [joined, setJoined] = useState(false)
   const joinMut = useMutation({
     mutationFn: () => api.post(`/communities/${community.slug}/join`),
-    onSuccess: () => {
-      setJoined(true)
+    onSuccess: (res: any) => {
+      toast.success(`Joined ${community.name}`)
       qc.invalidateQueries({ queryKey: ["communities"] })
       qc.invalidateQueries({ queryKey: ["community", community.slug] })
+      qc.invalidateQueries({ queryKey: ["profile", "me"] })
+    },
+    onError: (e: any) => {
+      if (e?.code === "COMMUNITY_LIMIT_REACHED") {
+        toast.error(`You can join up to ${MAX_MEMBERSHIPS} communities. Leave one to join another.`)
+      } else if (e?.code === "ALREADY_MEMBER") {
+        toast.error("You are already a member")
+      } else {
+        toast.error(e?.message || "Failed to join")
+      }
     },
   })
   return (
@@ -81,8 +112,12 @@ function CommunityCard({ community }: { community: any }) {
         </div>
         <div className="mt-4 flex gap-2">
           <Button asChild variant="outline" className="flex-1"><Link to={`/communities/${community.slug}`}><Video className="size-4" /> View</Link></Button>
-          {joined ? (
+          {isJoined ? (
             <Button variant="secondary" className="flex-1" disabled><Check className="size-4" /> Joined</Button>
+          ) : atLimit ? (
+            <Button variant="outline" className="flex-1" disabled title={`You can join up to ${MAX_MEMBERSHIPS} communities. Leave one to join another.`}>
+              <Lock className="size-4" /> Limit reached
+            </Button>
           ) : (
             <Button className="flex-1" onClick={() => joinMut.mutate()} disabled={joinMut.isPending}>Join</Button>
           )}

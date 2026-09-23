@@ -73,6 +73,51 @@ export function ProfileView() {
         <Stat icon={<Trophy className="size-5 text-amber-500" />} label="Sessions" value={`${sessions?.sessions.length ?? 0}`} sub="completed" />
       </div>
 
+      {/* Communities — the user's actual CommunityMember relationships (max 2) */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center justify-between">
+            <span className="flex items-center gap-2"><BookOpen className="size-4 text-brand-emerald" /> Communities</span>
+            <span className="text-xs font-normal text-muted-foreground">{profile?.membershipCount ?? 0}/2 joined</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {(profile?.memberships ?? []).length === 0 ? (
+            <div className="text-center py-4">
+              <BookOpen className="size-8 mx-auto mb-2 opacity-30" />
+              <p className="text-sm text-muted-foreground">You haven't joined any communities yet.</p>
+              <p className="text-xs text-muted-foreground mt-1">You can join up to 2 communities.</p>
+              <Button variant="outline" size="sm" className="mt-3" onClick={() => navigate("/communities")}>Browse communities</Button>
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {(profile?.memberships ?? []).map((m: any) => (
+                  <div key={m.communityId} className="flex items-center gap-3 p-3 rounded-lg border hover:bg-accent transition-colors">
+                    <div className="size-10 rounded-xl flex items-center justify-center text-white font-bold text-sm shrink-0" style={{ background: m.community.color }}>
+                      {m.community.name.slice(0, 2).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium truncate">{m.community.name}</div>
+                      <div className="text-xs text-muted-foreground truncate">{m.community.examGoal}</div>
+                    </div>
+                    <Link to={`/communities/${m.community.slug}`}>
+                      <Button variant="ghost" size="sm">View</Button>
+                    </Link>
+                  </div>
+                ))}
+              </div>
+              {(profile?.membershipCount ?? 0) < 2 && (
+                <div className="mt-3 pt-3 border-t flex items-center justify-between">
+                  <p className="text-xs text-muted-foreground">You can join {2 - (profile?.membershipCount ?? 0)} more community{2 - (profile?.membershipCount ?? 0) === 1 ? "" : "ies"}.</p>
+                  <Button variant="outline" size="sm" onClick={() => navigate("/communities")}>Browse</Button>
+                </div>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Activity chart */}
       <Card>
         <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Calendar className="size-4" /> Last 14 days</CardTitle></CardHeader>

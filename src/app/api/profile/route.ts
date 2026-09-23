@@ -7,10 +7,17 @@ import { ok, unauthorized, badRequest, getAuth } from "@/lib/api"
 export async function GET(req: NextRequest) {
   const ctx = await getAuth(req)
   if (!ctx) return unauthorized()
-  const user = await db.user.findUnique({
-    where: { id: ctx.userId },
-    include: { profile: true, streak: true, subscription: true, badges: { include: { badge: true } } },
-  })
+  const [user, memberships] = await Promise.all([
+    db.user.findUnique({
+      where: { id: ctx.userId },
+      include: { profile: true, streak: true, subscription: true, badges: { include: { badge: true } } },
+    }),
+    db.communityMember.findMany({
+      where: { userId: ctx.userId },
+      include: { community: { select: { id: true, slug: true, name: true, description: true, examGoal: true, color: true, memberCount: true } } },
+      orderBy: { joinedAt: "asc" },
+    }),
+  ])
   return ok({
     id: user!.id,
     email: user!.email,
@@ -28,6 +35,17 @@ export async function GET(req: NextRequest) {
     },
     streak: user!.streak,
     subscription: user!.subscription,
+    // The user's actual community memberships (max 2 enforced server-side).
+    // Profile → Communities renders these. The count is also used by the
+    // Communities page to disable Join at the limit.
+    memberships: memberships.map((m) => ({
+      communityId: m.communityId,
+      role: m.role,
+      joinedAt: m.joinedAt,
+      community: m.community,
+    })),
+    membershipCount: memberships.length,
+    maxMemberships: 2,
   })
 }
 

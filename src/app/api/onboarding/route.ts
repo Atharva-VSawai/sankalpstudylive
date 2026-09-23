@@ -31,18 +31,28 @@ export async function PATCH(req: NextRequest) {
   })
   await db.user.update({ where: { id: ctx.userId }, data: { emailVerifiedAt: new Date() } })
 
-  // Auto-join the community matching the exam goal
+  // Auto-join the community matching the exam goal (the user's FIRST community).
+  // A new user has 0 memberships, so this is always within the max-2 limit.
+  // We use upsert so re-running onboarding (e.g. user edits exam goal) doesn't
+  // create a duplicate membership; only increment memberCount on first join.
   const community = await db.community.findUnique({ where: { slug: slugify(examGoal) } })
   if (community) {
-    await db.communityMember.upsert({
+    const existing = await db.communityMember.findUnique({
       where: { communityId_userId: { communityId: community.id, userId: ctx.userId } },
-      create: { communityId: community.id, userId: ctx.userId, role: "member" },
-      update: {},
     })
-    await db.community.update({
-      where: { id: community.id },
-      data: { memberCount: { increment: 1 } },
-    })
+    if (!existing) {
+      // Count current memberships; only join if under the max-2 limit.
+      const count = await db.communityMember.count({ where: { userId: ctx.userId } })
+      if (count < 2) {
+        await db.communityMember.create({
+          data: { communityId: community.id, userId: ctx.userId, role: "member" },
+        })
+        await db.community.update({
+          where: { id: community.id },
+          data: { memberCount: { increment: 1 } },
+        })
+      }
+    }
   }
   const me = await loadMe(ctx.userId)
   return ok(me)
