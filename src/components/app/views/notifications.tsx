@@ -1,16 +1,18 @@
 "use client"
 
+import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api-client"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Avatar, timeAgo } from "@/components/app/brand"
 import { Link } from "@/lib/router"
-import { Bell, Check, UserPlus, Award, Target, Flame, MessageSquare, AlertTriangle, Info } from "lucide-react"
+import { Bell, Check, UserPlus, Award, Target, Flame, MessageSquare, AlertTriangle, Info, CheckCheck } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 export function NotificationsView() {
   const qc = useQueryClient()
+  const [filter, setFilter] = useState<"all" | "unread">("all")
   const { data, isLoading } = useQuery({
     queryKey: ["notifications", "all"],
     queryFn: () => api.get<{ notifications: any[]; unreadCount: number }>("/notifications", { limit: 50 }),
@@ -25,22 +27,36 @@ export function NotificationsView() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["notifications"] }),
   })
 
-  const items = data?.notifications ?? []
+  const items = (data?.notifications ?? []).filter((n: any) => filter === "all" || !n.read)
   const unread = data?.unreadCount ?? 0
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 pb-24 md:pb-8">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><Bell className="size-6" /> Notifications</h1>
           <p className="text-muted-foreground">{unread > 0 ? `${unread} unread` : "You're all caught up"}</p>
         </div>
-        {unread > 0 && <Button variant="outline" size="sm" onClick={() => markAll.mutate()}><Check className="size-4" /> Mark all read</Button>}
+        {unread > 0 && <Button variant="outline" size="sm" onClick={() => markAll.mutate()}><CheckCheck className="size-4" /> Mark all read</Button>}
+      </div>
+
+      {/* Filter tabs */}
+      <div className="inline-flex rounded-lg bg-muted p-1 mb-4">
+        {(["all", "unread"] as const).map((f) => (
+          <button
+            key={f}
+            onClick={() => setFilter(f)}
+            className={cn("px-3 py-1.5 rounded-md text-sm font-medium capitalize transition", filter === f ? "bg-background shadow-sm" : "text-muted-foreground")}
+          >
+            {f === "all" ? "All" : `Unread${unread > 0 ? ` (${unread})` : ""}`}
+          </button>
+        ))}
       </div>
 
       {isLoading ? <div className="text-center text-muted-foreground py-10">Loading…</div> : items.length === 0 ? (
         <Card><CardContent className="py-16 text-center text-muted-foreground">
-          <Bell className="size-10 mx-auto mb-2 opacity-30" /> No notifications yet.
+          <Bell className="size-10 mx-auto mb-2 opacity-30" />
+          {filter === "unread" ? "No unread notifications. You're all caught up!" : "No notifications yet."}
         </CardContent></Card>
       ) : (
         <div className="space-y-2">

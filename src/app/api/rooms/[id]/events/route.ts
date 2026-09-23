@@ -31,6 +31,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       send({ type: "presence", participants: listParticipants(id) })
       send({ type: "history", messages: listMessages(id, 50) })
       send({ type: "timer", timer: getTimer(id) })
+      const { listReactions } = await import("@/lib/presence")
+      send({ type: "reactions", reactions: listReactions(id) })
 
       const unsub = subscribe(id, send)
 

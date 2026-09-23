@@ -60,11 +60,55 @@ export async function bumpStreak(userId: string, timezone: string) {
   }
   const diffDays = Math.round((today.getTime() - last.getTime()) / 86400000)
   let current = 1
-  if (diffDays === 1) current = streak.current + 1
+  let freezesUsed = streak.freezesUsed
+  let freezesAvailable = streak.freezesAvailable
+  if (diffDays === 1) {
+    // studied yesterday -> streak continues
+    current = streak.current + 1
+  } else if (diffDays === 2 && freezesAvailable > 0) {
+    // missed exactly one day -> consume a freeze to keep the streak alive
+    current = streak.current + 1
+    freezesAvailable -= 1
+    freezesUsed += 1
+    // record the freeze on the missed day (yesterday in user's tz)
+    const missedDay = new Date(today.getTime() - 86400000)
+    await db.streak.update({
+      where: { userId },
+      data: { lastFreezeDate: missedDay },
+    })
+  }
   const longest = Math.max(current, streak.longest)
   return db.streak.update({
     where: { userId },
-    data: { current, longest, lastStudyDate: today },
+    data: { current, longest, lastStudyDate: today, freezesAvailable, freezesUsed },
+  })
+}
+
+// Manually activate a streak freeze for "today" (proactive, before the streak breaks).
+// This doesn't change current streak; it just marks today as frozen so bumpStreak
+// treats tomorrow as a continuation. Returns the updated streak.
+export async function activateFreeze(userId: string, timezone: string) {
+  const today = localDateForTimezone(new Date(), timezone)
+  const streak = await db.streak.findUnique({ where: { userId } })
+  if (!streak) throw new Error("STREAK_MISSING")
+  if (streak.freezesAvailable <= 0) throw new Error("NO_FREEZES")
+  // Check freeze-first ordering: a frozen day looks like a studied day (lastStudyDate=today),
+  // so we must check ALREADY_FROZEN_TODAY before ALREADY_STUDIED_TODAY.
+  if (streak.lastFreezeDate && sameDay(localDateForTimezone(streak.lastFreezeDate, timezone), today)) {
+    throw new Error("ALREADY_FROZEN_TODAY")
+  }
+  if (streak.lastStudyDate && sameDay(localDateForTimezone(streak.lastStudyDate, timezone), today)) {
+    throw new Error("ALREADY_STUDIED_TODAY")
+  }
+  return db.streak.update({
+    where: { userId },
+    data: {
+      freezesAvailable: { decrement: 1 },
+      freezesUsed: { increment: 1 },
+      lastFreezeDate: today,
+      // Advance lastStudyDate to today so the streak doesn't break tomorrow
+      lastStudyDate: today,
+    },
   })
 }
 

@@ -7,5 +7,14 @@ export async function GET(req: NextRequest) {
   const ctx = await getAuth(req)
   if (!ctx) return unauthorized()
   const streak = await db.streak.findUnique({ where: { userId: ctx.userId } })
-  return ok(streak ?? { current: 0, longest: 0, lastStudyDate: null })
+  return ok(
+    streak ?? {
+      current: 0,
+      longest: 0,
+      lastStudyDate: null,
+      freezesAvailable: 2,
+      freezesUsed: 0,
+      lastFreezeDate: null,
+    }
+  )
 }

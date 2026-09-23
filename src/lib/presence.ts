@@ -125,6 +125,40 @@ export function listMessages(roomId: string, limit = 50) {
   return r.messages.slice(-limit)
 }
 
+// Ephemeral emoji reactions (not persisted). Each reaction is broadcast once
+// and clients render a floating animation; we keep a small recent buffer so
+// late-joiners see the latest reactions.
+type Reaction = {
+  id: string
+  userId: string
+  username: string
+  emoji: string
+  createdAt: number
+}
+
+export function sendReaction(roomId: string, userId: string, username: string, emoji: string): Reaction {
+  const r = getRoom(roomId)
+  const reaction: Reaction = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    userId,
+    username,
+    emoji: emoji.slice(0, 8), // keep it tiny
+    createdAt: Date.now(),
+  }
+  // keep last 30 for late joiners
+  ;(r as any).reactions = (r as any).reactions ?? []
+  ;(r as any).reactions.push(reaction)
+  if ((r as any).reactions.length > 30) (r as any).reactions.shift()
+  emit(roomId, { type: "reaction", reaction })
+  return reaction
+}
+
+export function listReactions(roomId: string, limit = 30): Reaction[] {
+  const r = rooms.get(roomId)
+  if (!r) return []
+  return ((r as any).reactions ?? []).slice(-limit)
+}
+
 export function setTimer(
   roomId: string,
   mode: "focus" | "break" | "idle",

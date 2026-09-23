@@ -121,3 +121,66 @@ Unresolved / Next-phase priorities (for the recurring webDevReview cron):
 - PostHog + Sentry wiring (trackEvent is a no-op stub today).
 - More micro-interactions / polish: room reactions (emoji), screen-share, friend invite to room, push notifications (FCM), streak freeze, weekly recap email.
 - E2E tests (Playwright) for the golden path — not written (instructions: no test code required, but documented as next step).
+
+---
+Task ID: CRON-1
+Agent: webDevReview cron (round 1)
+Task: QA the platform, fix bugs, add features + styling polish
+
+Work Log:
+- Read worklog.md (full project history). Platform was stable from MAIN-1.
+- Ran comprehensive QA in a single command (sandbox kills bg dev servers between commands): all 44 API routes return 200, all 18 views render with correct H1s, zero console errors, login/room/study flows work. No bugs found in the existing surface.
+- Added 3 new features + 2 styling improvements:
+
+  1. Room emoji reactions (NEW)
+     - Schema/lib: added `sendReaction` + `listReactions` to src/lib/presence.ts (ephemeral, last-30 buffer for late joiners).
+     - API: POST /api/rooms/[id]/reactions (10 allowed emoji: 🔥👏💪🙏💡✨🚀❤️🧠🎯), GET /api/rooms/[id]/reactions.
+     - SSE: events stream now emits `reaction` events + a `reactions` snapshot on connect.
+     - Frontend: room view has a Smile button that opens an emoji picker; reactions float up across the stage with a CSS keyframe animation (`float-up`). Also added a Share/Invite button that copies the room link.
+
+  2. Activity heatmap (NEW) — GitHub-style contribution graph
+     - API: GET /api/study/heatmap?weeks=N (timezone-aware, returns per-day minutes for last N weeks, default 12).
+     - Component: src/components/app/activity-heatmap.tsx — 7-row grid, month labels, 6 intensity levels (bg-muted → bg-brand-emerald), today ring, hover scale, legend.
+     - Placed on Dashboard (14 weeks) and Profile (20 weeks, below the 14-day bar chart).
+
+  3. Streak freeze (NEW) — protect your streak on a missed day
+     - Schema: added `freezesAvailable` (default 2), `freezesUsed`, `lastFreezeDate` to Streak model. Pushed with db:push.
+     - Lib: updated `bumpStreak` in study.ts — if a user misses exactly 1 day and has a freeze available, consume it automatically and continue the streak. Added `activateFreeze` for proactive use.
+     - Fixed a logic bug: check order in `activateFreeze` must be ALREADY_FROZEN_TODAY before ALREADY_STUDIED_TODAY (since activating sets lastStudyDate=today, the second call would wrongly hit ALREADY_STUDIED_TODAY).
+     - API: POST /api/study/streak/freeze (activate), GET /api/study/streak/freeze (status). Updated GET /api/study/streak + loadMe to return freeze fields.
+     - Component: src/components/app/streak-freeze-card.tsx — sky-themed card with snowflake icon, "X left" badge, activate button, "Frozen today" state. Placed on Dashboard.
+
+  4. Landing testimonials section (STYLING)
+     - Added a "Loved by aspirants" section with 3 illustrative persona cards (Aarav/Diya/Vihaan, star ratings, exam-colored avatars). Clearly labelled as illustrative personas (not real user quotes) to stay truthful per the original "do not fabricate statistics" rule.
+
+  5. Notification filters (STYLING)
+     - Added All / Unread filter tabs to the notifications view. Unread tab shows count badge + dedicated empty state ("No unread notifications. You're all caught up!"). Swapped to CheckCheck icon for mark-all.
+
+- Updated auth-context Me type + me.ts helper to include freezesAvailable/freezesUsed/lastFreezeDate.
+- Ran `bun run lint` → clean (0 errors, 0 warnings).
+
+Verification (agent-browser + curl):
+- /api/study/heatmap → 200 (84 days, activeDays + totalMinutes correct)
+- /api/study/streak/freeze GET → 200; POST → 200 (freezesAvailable 2→1, freezesUsed 0→1)
+- /api/rooms/[id]/reactions POST → 200 (returns reaction obj); GET → 200 (returns array)
+- Dashboard: "HEATMAP PRESENT" + "FREEZE CARD PRESENT" ✓
+- Room: "Send reaction" + "Share room" buttons present; emoji picker opens; 🔥 click sends reaction ✓
+- Landing (scrolled): "TESTIMONIALS PRESENT" + "PERSONA 1 PRESENT" ✓
+- Notifications: "FILTERS PRESENT"; Unread tab click → "No unread notifications" empty state ✓
+- Profile: "PROFILE HEATMAP PRESENT" (Contribution graph, 20 weeks) ✓
+- Zero console errors across all pages.
+
+Stage Summary:
+- Platform remains fully stable; all 13 documented flows still pass + 3 new features added.
+- New API endpoints (reactions, heatmap, streak/freeze) are backward-compatible additions — the Android contract in docs/mobile-contract.md gains optional fields and new endpoints, nothing breaks.
+- Lint clean. Schema pushed. All features browser-verified.
+
+Unresolved / Next-phase priorities (for the next webDevReview round):
+- Update docs/mobile-contract.md to document the 3 new endpoints (reactions, heatmap, streak/freeze) + the new streak.freeze fields. (Deferred to keep this round focused on code.)
+- Real LiveKit/Supabase Auth/Redis swap (still sandbox-simulated).
+- Friend invite-to-room: currently just a copied link; a proper "invite friend by username" flow with a notification + join button would be nicer.
+- Room screen-share simulation (button + tile).
+- Push notifications (FCM) + notification preferences in settings.
+- Weekly recap email (Resend).
+- Playwright E2E tests for the golden path.
+- More micro-animations: confetti on badge earned, streak milestone celebration, room join/leave transitions.

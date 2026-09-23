@@ -241,6 +241,9 @@ model Streak {
   current       Int      @default(0)
   longest       Int      @default(0)
   lastStudyDate DateTime? // local date of last study
+  freezesAvailable Int   @default(2) // streak-freeze credits (Plus users get more)
+  freezesUsed   Int      @default(0) // total freezes ever used
+  lastFreezeDate DateTime? // local date the last freeze was applied
   updatedAt     DateTime @updatedAt
 
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)

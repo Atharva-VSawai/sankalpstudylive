@@ -11,7 +11,7 @@ import { useRouter, Link } from "@/lib/router"
 import { useAuth } from "@/lib/auth-context"
 import {
   Mic, MicOff, Video, VideoOff, PhoneOff, Send, Play, Square, Coffee, Timer,
-  Users, MessageSquare, Settings, Crown, Volume2, Hand, LogOut, Lock, Focus, Sparkles, Zap,
+  Users, MessageSquare, Settings, Crown, Volume2, Hand, LogOut, Lock, Focus, Sparkles, Zap, Smile, Share2,
 } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
@@ -30,6 +30,9 @@ type Participant = {
 
 type Msg = { id: string; userId: string; username: string; text: string; isSystem: boolean; createdAt: number }
 type TimerState = { mode: "focus" | "break" | "idle"; endsAt: number | null; round: number; focusMin: number; breakMin: number; startedBy: string | null }
+type FloatingReaction = { id: string; emoji: string; userId: string; username: string; x: number; createdAt: number }
+
+const REACTION_EMOJIS = ["🔥", "👏", "💪", "🙏", "💡", "✨", "🚀", "❤️", "🧠", "🎯"]
 
 export function RoomView({ id }: { id: string }) {
   const { route, navigate } = useRouter()
@@ -52,6 +55,9 @@ export function RoomView({ id }: { id: string }) {
   const [studyActive, setStudyActive] = useState(false)
   const [now, setNow] = useState(Date.now())
   const [left, setLeft] = useState(false)
+  const [floatingReactions, setFloatingReactions] = useState<FloatingReaction[]>([])
+  const [showReactions, setShowReactions] = useState(false)
+  const [showShare, setShowShare] = useState(false)
 
   const sessionIdRef = useRef<string | null>(null)
   const esRef = useRef<EventSource | null>(null)
@@ -74,6 +80,23 @@ export function RoomView({ id }: { id: string }) {
         es.addEventListener("history", (e: any) => setMessages(JSON.parse(e.data).messages))
         es.addEventListener("message", (e: any) => setMessages((m) => [...m, JSON.parse(e.data).message]))
         es.addEventListener("timer", (e: any) => setTimer(JSON.parse(e.data).timer))
+        es.addEventListener("reaction", (e: any) => {
+          const r = JSON.parse(e.data).reaction
+          // Spawn a floating reaction at a random x position
+          const fr: FloatingReaction = {
+            id: r.id,
+            emoji: r.emoji,
+            userId: r.userId,
+            username: r.username,
+            x: 10 + Math.random() * 80,
+            createdAt: Date.now(),
+          }
+          setFloatingReactions((prev) => [...prev.slice(-12), fr])
+          // auto-remove after 2.6s
+          setTimeout(() => {
+            setFloatingReactions((prev) => prev.filter((p) => p.id !== fr.id))
+          }, 2600)
+        })
         es.onerror = () => { /* auto-reconnect by browser */ }
         // heartbeat
         heartbeatRef.current = setInterval(() => {
@@ -149,6 +172,15 @@ export function RoomView({ id }: { id: string }) {
   }
   const stopTimer = async () => {
     try { await api.post(`/rooms/${id}/timer`, { action: "stop" }) } catch (e: any) { toast.error(e.message) }
+  }
+
+  const sendReaction = async (emoji: string) => {
+    setShowReactions(false)
+    try { await api.post(`/rooms/${id}/reactions`, { emoji }) } catch (e: any) { toast.error(e.message) }
+  }
+  const shareRoom = async () => {
+    const url = `${window.location.origin}/#/rooms/${id}`
+    try { await navigator.clipboard.writeText(url); toast.success("Room link copied — share it with a friend!") } catch { setShowShare(true) }
   }
 
   const startStudy = async () => {
@@ -333,13 +365,84 @@ export function RoomView({ id }: { id: string }) {
       </div>
 
       {/* Bottom controls */}
-      <div className="flex items-center justify-center gap-3 h-20 border-t bg-card/80 backdrop-blur" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+      <div className="flex items-center justify-center gap-3 h-20 border-t bg-card/80 backdrop-blur relative" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
         <ControlBtn active={micOn} onClick={toggleMic} on={<Mic className="size-5" />} off={<MicOff className="size-5" />} label={micOn ? "Mute" : "Unmute"} />
         <ControlBtn active={camOn} onClick={toggleCam} on={<Video className="size-5" />} off={<VideoOff className="size-5" />} label={camOn ? "Stop video" : "Start video"} />
+
+        {/* Reactions */}
+        <div className="relative">
+          {showReactions && (
+            <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-card border rounded-2xl shadow-lg p-2 flex gap-1 fade-in">
+              {REACTION_EMOJIS.map((e) => (
+                <button
+                  key={e}
+                  onClick={() => sendReaction(e)}
+                  className="size-9 rounded-full hover:bg-accent text-xl transition-transform hover:scale-125"
+                >
+                  {e}
+                </button>
+              ))}
+            </div>
+          )}
+          <button
+            onClick={() => setShowReactions(!showReactions)}
+            className="inline-flex flex-col items-center gap-1"
+            title="Send reaction"
+          >
+            <span className={cn("inline-flex items-center justify-center size-12 rounded-full transition-colors", showReactions ? "bg-brand-emerald text-white" : "bg-muted text-muted-foreground hover:bg-accent")}>
+              <Smile className="size-5" />
+            </span>
+            <span className="text-[10px] text-muted-foreground">React</span>
+          </button>
+        </div>
+
+        {/* Share */}
+        <button onClick={shareRoom} className="inline-flex flex-col items-center gap-1" title="Share room">
+          <span className="inline-flex items-center justify-center size-12 rounded-full bg-muted text-muted-foreground hover:bg-accent transition-colors">
+            <Share2 className="size-5" />
+          </span>
+          <span className="text-[10px] text-muted-foreground">Invite</span>
+        </button>
+
         <button onClick={leave} className="inline-flex items-center justify-center size-14 rounded-full bg-destructive text-white hover:bg-destructive/90 transition-colors" title="Leave">
           <PhoneOff className="size-5" />
         </button>
       </div>
+
+      {/* Floating reactions overlay */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden z-30">
+        {floatingReactions.map((fr) => (
+          <div
+            key={fr.id}
+            className="absolute bottom-24 text-4xl select-none"
+            style={{
+              left: `${fr.x}%`,
+              animation: "float-up 2.6s ease-out forwards",
+            }}
+          >
+            <span className="drop-shadow-lg">{fr.emoji}</span>
+            <style jsx>{`
+              @keyframes float-up {
+                0% { transform: translateY(0) scale(0.6); opacity: 0; }
+                15% { transform: translateY(-20px) scale(1.2); opacity: 1; }
+                100% { transform: translateY(-260px) scale(1); opacity: 0; }
+              }
+            `}</style>
+          </div>
+        ))}
+      </div>
+
+      {/* Share dialog (fallback if clipboard blocked) */}
+      {showShare && (
+        <div className="absolute inset-0 z-40 bg-black/60 flex items-center justify-center p-4" onClick={() => setShowShare(false)}>
+          <div className="bg-card rounded-xl p-5 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-semibold mb-2">Share this room</h3>
+            <p className="text-xs text-muted-foreground mb-3">Send this link to a study buddy. They can join even without an account first (they'll sign up on open).</p>
+            <code className="block w-full px-3 py-2 rounded-md bg-muted text-sm break-all">{typeof window !== "undefined" ? `${window.location.origin}/#/rooms/${id}` : ""}</code>
+            <button onClick={() => setShowShare(false)} className="mt-3 w-full h-9 rounded-md bg-primary text-primary-foreground text-sm">Done</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

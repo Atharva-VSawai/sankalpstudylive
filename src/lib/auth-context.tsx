@@ -23,7 +23,14 @@ export type Me = {
     totalXp: number
     level: number
   }
-  streak: { current: number; longest: number; lastStudyDate: string | null } | null
+  streak: {
+    current: number
+    longest: number
+    lastStudyDate: string | null
+    freezesAvailable: number
+    freezesUsed: number
+    lastFreezeDate: string | null
+  } | null
 }
 
 type AuthState = {

@@ -231,6 +231,40 @@ export function LandingView() {
         </div>
       </section>
 
+      {/* Testimonials */}
+      <section className="bg-card/40 border-y">
+        <div className="mx-auto max-w-7xl px-4 py-14">
+          <div className="text-center max-w-2xl mx-auto mb-10">
+            <h2 className="text-2xl md:text-3xl font-bold">Loved by aspirants</h2>
+            <p className="mt-2 text-muted-foreground">Real study habits, real momentum. <span className="text-xs">(Illustrative testimonials — clearly labelled, not real user quotes.)</span></p>
+          </div>
+          <div className="grid md:grid-cols-3 gap-4">
+            {[
+              { name: "Aarav S.", goal: "GATE 2026", text: "The 5am focus rooms changed my routine. Studying alongside others preparing for the same paper keeps me honest.", color: "#10b981" },
+              { name: "Diya P.", goal: "NEET 2026", text: "I used to quit after 2 hours. Now my streak is 41 days and I actually look forward to the morning Pomodoro.", color: "#ef4444" },
+              { name: "Vihaan R.", goal: "UPSC CSE", text: "Found my optional study group here. The accountability is real — you don't want to be the one breaking the chain.", color: "#8b5cf6" },
+            ].map((t, i) => (
+              <Card key={i} className="hover:shadow-md transition-shadow">
+                <CardContent className="p-5">
+                  <div className="flex items-center gap-3 mb-3">
+                    <span className="size-10 rounded-full flex items-center justify-center text-white font-semibold text-sm" style={{ background: t.color }}>
+                      {t.name.split(" ").map((p) => p[0]).join("")}
+                    </span>
+                    <div>
+                      <div className="font-semibold text-sm">{t.name}</div>
+                      <div className="text-xs text-muted-foreground">{t.goal}</div>
+                    </div>
+                  </div>
+                  <div className="text-brand-saffron text-lg mb-2">★★★★★</div>
+                  <p className="text-sm text-muted-foreground leading-relaxed">"{t.text}"</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+          <p className="text-center text-xs text-muted-foreground mt-6">These are illustrative personas for demo purposes. The platform's leaderboard, streaks and badges are real and computed server-side.</p>
+        </div>
+      </section>
+
       {/* FAQ */}
       <section className="mx-auto max-w-3xl px-4 py-14">
         <h2 className="text-2xl md:text-3xl font-bold text-center mb-8">Frequently asked questions</h2>

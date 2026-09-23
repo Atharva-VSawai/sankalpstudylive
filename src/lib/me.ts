@@ -22,7 +22,14 @@ export async function loadMe(userId: string): Promise<MeResponse> {
     status: user.status,
     profile: user.profile,
     streak: user.streak
-      ? { current: user.streak.current, longest: user.streak.longest, lastStudyDate: user.streak.lastStudyDate }
+      ? {
+          current: user.streak.current,
+          longest: user.streak.longest,
+          lastStudyDate: user.streak.lastStudyDate,
+          freezesAvailable: user.streak.freezesAvailable,
+          freezesUsed: user.streak.freezesUsed,
+          lastFreezeDate: user.streak.lastFreezeDate,
+        }
       : null,
   }
 }

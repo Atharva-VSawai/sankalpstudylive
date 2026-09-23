@@ -8,6 +8,8 @@ import { Progress } from "@/components/ui/progress"
 import { Avatar, formatMinutes, timeAgo, EXAM_META } from "@/components/app/brand"
 import { Link, useRouter } from "@/lib/router"
 import { useAuth } from "@/lib/auth-context"
+import { ActivityHeatmap } from "@/components/app/activity-heatmap"
+import { StreakFreezeCard } from "@/components/app/streak-freeze-card"
 import { Flame, Target, Sparkles, Trophy, Play, Video, Users, Clock, ArrowRight, Zap, Award, BookOpen, TrendingUp } from "lucide-react"
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell } from "recharts"
 
@@ -196,6 +198,21 @@ export function DashboardView() {
             </div>
           </CardContent>
         </Card>
+      </div>
+
+      {/* Activity heatmap + streak freeze */}
+      <div className="grid lg:grid-cols-3 gap-6">
+        <Card className="lg:col-span-2">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2"><TrendingUp className="size-4 text-brand-emerald" /> Study activity</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ActivityHeatmap weeks={14} />
+          </CardContent>
+        </Card>
+        <div className="space-y-4">
+          <StreakFreezeCard />
+        </div>
       </div>
     </div>
   )

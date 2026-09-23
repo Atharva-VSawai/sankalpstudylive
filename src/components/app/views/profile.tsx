@@ -10,6 +10,7 @@ import { useAuth } from "@/lib/auth-context"
 import { Settings, Share2, Flame, Clock, Sparkles, Award, BookOpen, Copy, Trophy, Calendar } from "lucide-react"
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell } from "recharts"
 import { toast } from "sonner"
+import { ActivityHeatmap } from "@/components/app/activity-heatmap"
 
 export function ProfileView() {
   const { me } = useAuth()
@@ -83,6 +84,10 @@ export function ProfileView() {
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
+          </div>
+          <div className="mt-4 pt-4 border-t">
+            <div className="text-xs text-muted-foreground mb-2">Contribution graph (last 20 weeks)</div>
+            <ActivityHeatmap weeks={20} />
           </div>
         </CardContent>
       </Card>
