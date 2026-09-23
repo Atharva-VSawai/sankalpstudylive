@@ -35,6 +35,7 @@ model User {
   ownedRooms     Room[]         @relation("OwnedRooms")
   roomMemberships RoomMember[]
   studySessions  StudySession[]
+  timelapses     Timelapse[]
   dailyGoals     DailyGoal[]
   streak         Streak?
   badges         UserBadge[]
@@ -232,6 +233,52 @@ model StudySession {
   @@index([userId])
   @@index([roomId])
   @@index([startedAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STUDY TIMELAPSES — cost-first architecture.
+// ─────────────────────────────────────────────────────────────────────────────
+// The browser captures sparse camera frames during a study session, compiles
+// them into a short (15–60s) 360p video locally, and uploads ONLY the final
+// compressed video to a PRIVATE Supabase Storage bucket. PostgreSQL stores
+// metadata only — never the video binary or raw frames.
+//
+// The StudySession is the source of truth for the study duration; the browser
+// cannot fake it. The Timelapse row is created with status=PROCESSING when the
+// upload begins, moves to READY when the upload completes, and FAILED if the
+// upload fails (the user can retry).
+//
+// Storage paths:
+//   timelapses/{userId}/{timelapseId}/video.webm
+//   timelapses/{userId}/{timelapseId}/thumb.webp
+//
+// Privacy: timelapses are PRIVATE by default. Playback uses short-lived signed
+// URLs generated server-side after ownership verification. Other users cannot
+// access them. The bucket is never made public.
+model Timelapse {
+  id                     String   @id @default(cuid())
+  userId                 String
+  studySessionId         String?  // the StudySession this timelapse covers
+  roomId                 String?  // the room the study happened in (optional)
+  storagePath            String  // e.g. timelapses/{userId}/{id}/video.webm
+  thumbnailPath          String? // e.g. timelapses/{userId}/{id}/thumb.webp
+  studyDurationSeconds   Int      @default(0) // server-authoritative, from StudySession
+  timelapseDurationSeconds Int    @default(15) // 15–60s
+  width                  Int      @default(640) // 360p = 640x360
+  height                 Int      @default(360)
+  fileSizeBytes          Int      @default(0)
+  status                 String   @default("PROCESSING") // PROCESSING | READY | FAILED
+  visibility             String   @default("private") // private (V1) | future: public
+  failureReason          String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  user                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([studySessionId])
+  @@index([createdAt])
+  @@index([status])
 }
 
 model DailyGoal {

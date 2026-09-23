@@ -274,3 +274,36 @@ Stage Summary:
 - Communities page: server-derived joined status + membership count; "Joined" for joined, "Limit reached" (disabled) at the limit; "You can join up to 2 communities" message.
 - Profile: Communities card shows the user's actual memberships with a "X/2 joined" header and a "browse" CTA when < 2.
 - The 30-minute free live-room allowance remains GLOBAL and separate from community membership (unchanged).
+
+---
+Task ID: TIMELAPSE-009
+Agent: general-purpose (study timelapse, cost-first)
+Task: Implement the Study Timelapse feature with a cost-first architecture: browser-side sparse capture, 360p, no audio, 15–60s final video, private Supabase Storage, signed URLs, lazy playback, delete.
+
+Work Log:
+- Inspected: LiveKit impl, StudySession lifecycle, Prisma schema, Supabase config (createServerClient uses service-role key server-side; publishable key client-side), profile route, auth. No existing timelapse code. The `timelapses` Storage bucket doesn't exist yet — created lazily by ensureTimelapseBucket().
+- Prisma: added Timelapse model (id, userId, studySessionId, roomId, storagePath, thumbnailPath, studyDurationSeconds, timelapseDurationSeconds, width, height, fileSizeBytes, status PROCESSING|READY|FAILED, visibility private, failureReason, createdAt, updatedAt). Indexes on userId, studySessionId, createdAt, status. Added `timelapses Timelapse[]` relation on User. Pushed to Supabase Postgres via `bun run db:push`.
+- Created src/lib/timelapse-storage.ts (server-only): ensureTimelapseBucket (creates the private `timelapses` bucket with 20MB file cap + allowed mime types), uploadTimelapseVideo, uploadTimelapseThumb, createTimelapseSignedUrl (5-min TTL), createTimelapseThumbSignedUrl, deleteTimelapseFiles. All use createServerClient (service-role key, never exposed to browser). Paths: timelapses/{userId}/{timelapseId}/video.webm + thumb.webp.
+- Created src/lib/timelapse-capture.ts (client): TimelapseCapture class + timelapseDurationFor + captureIntervalMs + isTimelapseSupported. Cost-first: adaptive sampling (1s for <30m, up to 15s for 8h+), 640×360 360p, canvas.captureStream(10fps) → MediaRecorder at 500 kbps, NO AUDIO. Reuses the LiveKit LocalVideoTrack's mediaStreamTrack if the camera is on (clones it so stopping our capture doesn't stop LiveKit); else getUserMedia({video:true, audio:false}). Memory bounded (MAX_FRAMES rolling window — actually we don't store frames, we draw directly onto the canvas at the adaptive interval, so memory is O(1) frames). Final duration: 15–60s mapped from study duration (30m→15s, 1h→20s, 2h→25s, 4h→35s, 6h→45s, 10h→60s). Produces a WebM blob + a WebP thumbnail.
+- API routes (all auth + ownership checked):
+  - POST /api/timelapses/create — creates a PROCESSING row; study duration computed from the StudySession (server-authoritative, not from client).
+  - POST /api/timelapses/[id]/complete — receives multipart video+thumb, uploads to Supabase Storage (private bucket), sets status=READY. maxDuration=60, body size capped, hard caps 20MB video / 512KB thumb.
+  - GET /api/timelapses — lists metadata (NO video), paginated.
+  - GET /api/timelapses/[id]/signed-url — returns a 5-min signed URL after ownership check; refuses if status≠READY.
+  - GET /api/timelapses/[id]/thumb — redirects to a signed thumbnail URL (lazy-loaded by <img>).
+  - DELETE /api/timelapses/[id] — deletes Storage files + metadata row; returns error (not false success) if Storage delete fails.
+- Room view (src/components/app/views/room.tsx): added timelapse state (showTimelapsePrompt, timelapseRecording, timelapseUploading). Prompt shown ONCE on join if browser supports capture. "Enable Timelapse" starts a TimelapseCapture (reuses LiveKit camera track if on, else getUserMedia video-only). "Not Now" dismisses without requesting camera. Recording indicator ("● Timelapse recording") shown while active. On room exit / leave, finalizeTimelapseAndUpload() stops the capture (triggers onFinalized) and the upload runs in the background — does NOT block room exit. "Saving timelapse…" indicator shows while uploading. Cleanup on unmount via destroy().
+- Profile (src/components/app/profile-timelapses.tsx + src/components/app/views/profile.tsx): added ProfileTimelapses card. Loads ONLY metadata + thumbnails initially (thumbnails via /api/timelapses/[id]/thumb → signed URL redirect, lazy-loaded by <img loading="lazy">). Clicking a READY timelapse requests a signed URL and plays that ONE video in a modal. No preloading, no autoplay. Delete with confirm; shows error toast if Storage delete fails.
+- Verified via curl: list (empty), create (PROCESSING), list (1 PROCESSING), signed-url (NOT_READY), delete (ok), list (empty). All ownership-checked.
+- Verified via agent-browser: room join → "Create a study timelapse?" prompt with "Enable Timelapse" + "Not now". "Not now" dismisses, room continues, no camera request, no console errors. Re-join → prompt re-appears (once per session). "Enable Timelapse" → "Timelapse recording" indicator appears, camera granted (fake device). VLM confirmed the indicator + countdown + clean layout.
+- `bun run lint` passes clean. `bun run build` succeeds — all timelapse routes compiled as serverless functions. Vercel-compatible (no custom servers, no server-side WebRTC, browser APIs guarded with typeof checks in client components).
+- Security: service-role key never reaches the browser (all Storage ops are in API routes using createServerClient). Signed URLs not logged. Ownership checked on every endpoint. Client cannot fake study duration (server reads it from StudySession). Client cannot complete another user's timelapse. Bucket is private.
+
+Stage Summary:
+- Cost-first: browser captures sparse 360p frames (adaptive interval 1s–15s), compiles a 15–60s video locally, uploads ONLY the final 2–6 MB WebM. No raw study video stored. No audio. No LiveKit recording. No Vercel video proxy.
+- 10-hour session: adaptive interval grows to 15s, so ~2400 frames over 10h → memory bounded (we draw directly to canvas, no frame array) → ~60s final video at 500 kbps ≈ 3–5 MB. Verified by design.
+- Playback egress: profile loads thumbnails only; clicking one video requests a 5-min signed URL. No autoplay, no preload.
+- Privacy: timelapses private by default; only the owner can list/play/delete. Bucket never public.
+- Delete: removes Storage video + thumbnail + metadata; returns error if Storage delete fails (no false success).
+- LiveKit unaffected: timelapse reuses the LiveKit camera track (cloned) if available; never records remote participants; never uses LiveKit Egress.
+- 30-min free-room allowance: completely unchanged — timelapse is a separate feature that doesn't touch entitlement.

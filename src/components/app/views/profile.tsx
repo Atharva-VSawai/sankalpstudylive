@@ -12,6 +12,7 @@ import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell } from 
 import { toast } from "sonner"
 import { ActivityHeatmap } from "@/components/app/activity-heatmap"
 import { StreakCalendar } from "@/components/app/streak-calendar"
+import { ProfileTimelapses } from "@/components/app/profile-timelapses"
 
 export function ProfileView() {
   const { me } = useAuth()
@@ -117,6 +118,9 @@ export function ProfileView() {
           )}
         </CardContent>
       </Card>
+
+      {/* Study Timelapses — thumbnails only; click to play via signed URL */}
+      <ProfileTimelapses />
 
       {/* Activity chart */}
       <Card>

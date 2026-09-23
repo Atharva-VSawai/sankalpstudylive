@@ -6,12 +6,13 @@ import { api, getToken } from "@/lib/api-client"
 import { Avatar } from "@/components/app/brand"
 import { useRouter, Link } from "@/lib/router"
 import { useAuth } from "@/lib/auth-context"
-import { Video, VideoOff, PhoneOff, Play, Pause, Square, RotateCcw, Settings2, ChevronLeft, Coffee, Timer as TimerIcon, Headphones, SkipForward, Pin, PinOff, Maximize2, Minimize2, Clock, Lock, Zap, Calendar, Crown, ArrowRight, X, Sparkles, Activity } from "lucide-react"
+import { Video, VideoOff, PhoneOff, Play, Pause, Square, RotateCcw, Settings2, ChevronLeft, Coffee, Timer as TimerIcon, Headphones, SkipForward, Pin, PinOff, Maximize2, Minimize2, Clock, Lock, Zap, Calendar, Crown, ArrowRight, X, Sparkles, Activity, Loader2, Camera, Film } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { AmbientSounds } from "@/components/app/ambient-sounds"
-import { Room, RoomEvent, Track, Participant, ParticipantEvent, ConnectionState, RemoteTrackPublication } from "livekit-client"
+import { Room, RoomEvent, Track, Participant, ParticipantEvent, ConnectionState, RemoteTrackPublication, LocalVideoTrack } from "livekit-client"
 import { buildRoomOptions, applyPolicyToAllRemoteTracks, applyRemoteQualityCap, reassertRemoteQualityCap, pauseRemoteTrack, resumeRemoteTrack, countSubscribedRemoteVideoTracks, ClientVideoPolicy } from "@/lib/video-quality-client"
+import { TimelapseCapture, isTimelapseSupported } from "@/lib/timelapse-capture"
 
 // ── Types ──
 type PomodoroConfig = { focusMin: number; breakMin: number; longBreakMin: number; rounds: number }
@@ -98,6 +99,19 @@ export function RoomView({ id }: { id: string }) {
   // development via a small overlay; no secrets are logged.
   const [visibleCount, setVisibleCount] = useState(0)
   const [subscribedTrackCount, setSubscribedTrackCount] = useState(0)
+
+  // ── Study Timelapse (cost-first, browser-side capture) ──
+  // The user is prompted on join: "Create a study timelapse?". If they opt in,
+  // we start a TimelapseCapture that reuses the LiveKit camera track (if the
+  // camera is on) or opens a separate camera (no audio). On room exit / unmount,
+  // we finalize the timelapse and upload it. The upload does NOT block room
+  // exit — it fires in the background.
+  const [showTimelapsePrompt, setShowTimelapsePrompt] = useState(false)
+  const [timelapseRecording, setTimelapseRecording] = useState(false)
+  const [timelapseUploading, setTimelapseUploading] = useState(false)
+  const timelapseCaptureRef = useRef<TimelapseCapture | null>(null)
+  const timelapsePromptShownRef = useRef(false)
+  const roomEnteredAtRefTimelapse = useRef<number>(0)
 
   // ── Pomodoro state ──
   const { data: pomoData } = useQuery({
@@ -241,6 +255,15 @@ export function RoomView({ id }: { id: string }) {
           roomEnteredAtRef.current = Date.now()
         }
 
+        // 5b. Show the timelapse opt-in prompt ONCE per room session (only if
+        // the browser supports it). The user can accept (start capture) or
+        // dismiss (no capture, no camera request).
+        roomEnteredAtRefTimelapse.current = Date.now()
+        if (!timelapsePromptShownRef.current && isTimelapseSupported()) {
+          setShowTimelapsePrompt(true)
+          timelapsePromptShownRef.current = true
+        }
+
         // 6. Heartbeat: pings the server every 20s. The server recomputes the
         // entitlement and returns it so the client can re-sync its countdown.
         // If the server reports exhausted=true (free allowance hit 0), the
@@ -375,9 +398,98 @@ export function RoomView({ id }: { id: string }) {
     }
   }, [displayedFreeSeconds, entitlement, exhausted])
 
+  // ── Timelapse: upload the finalized blob (background, post-exit) ──
+  const uploadTimelapse = useCallback(async (video: Blob, thumb: Blob | null) => {
+    try {
+      // 1. Create the Timelapse row (PROCESSING).
+      const createRes = await api.post<{ id: string }>("/timelapses/create", {
+        studySessionId: sessionIdRef.current,
+        roomId: id,
+      })
+      const tlId = createRes.id
+      // 2. Upload the video + thumbnail via multipart to /complete.
+      const form = new FormData()
+      form.append("video", video, "video.webm")
+      if (thumb) form.append("thumb", thumb, "thumb.webp")
+      const res = await fetch(`/api/timelapses/${tlId}/complete`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${getToken()}` },
+        body: form,
+      })
+      if (!res.ok) throw new Error("Upload failed")
+      toast.success("Study timelapse saved.")
+    } catch (e: any) {
+      toast.error("Could not save timelapse")
+    } finally {
+      setTimelapseUploading(false)
+    }
+  }, [id])
+
+  // ── Timelapse: start capture (called when the user clicks "Enable Timelapse") ──
+  const startTimelapse = useCallback(async () => {
+    setShowTimelapsePrompt(false)
+    // Reuse the LiveKit local camera track if the camera is on (avoids a
+    // second camera prompt + camera conflict). Otherwise TimelapseCapture will
+    // call getUserMedia({ video: true, audio: false }) itself.
+    let existingTrack: MediaStreamTrack | null = null
+    if (lkRoomRef.current?.localParticipant) {
+      const pub = lkRoomRef.current.localParticipant.getTrackPublication(Track.Source.Camera)
+      if (pub?.track instanceof LocalVideoTrack) {
+        try { existingTrack = (pub.track as any).mediaStreamTrack ?? null } catch {}
+      }
+    }
+    const capture = new TimelapseCapture({
+      startedAt: roomEnteredAtRefTimelapse.current || Date.now(),
+      existingCameraTrack: existingTrack,
+      onError: (reason) => {
+        toast.error(reason)
+        setTimelapseRecording(false)
+      },
+      onFinalized: (result) => {
+        // Upload the finalized blob to the server (which forwards it to
+        // Supabase Storage). This runs in the background after room exit.
+        uploadTimelapse(result.blob, result.thumbnail)
+      },
+    })
+    timelapseCaptureRef.current = capture
+    const ok = await capture.start()
+    if (ok) setTimelapseRecording(true)
+  }, [uploadTimelapse])
+
+  // ── Timelapse: finalize + upload (called on room exit / unmount) ──
+  const finalizeTimelapseAndUpload = useCallback(() => {
+    const capture = timelapseCaptureRef.current
+    if (!capture) return
+    // stop() triggers onFinalized → uploadTimelapse. We clear the ref so it
+    // doesn't get destroyed twice.
+    timelapseCaptureRef.current = null
+    setTimelapseRecording(false)
+    setTimelapseUploading(true)
+    try { capture.stop() } catch {}
+  }, [])
+
+  // ── Timelapse: cancel prompt (Not Now) ──
+  const dismissTimelapsePrompt = useCallback(() => {
+    setShowTimelapsePrompt(false)
+  }, [])
+
+  // ── Timelapse: cleanup on unmount (safety net) ──
+  useEffect(() => {
+    return () => {
+      if (timelapseCaptureRef.current) {
+        try { timelapseCaptureRef.current.destroy() } catch {}
+        timelapseCaptureRef.current = null
+      }
+    }
+  }, [])
+
   // ── Leave room ──
   const leave = useCallback(async () => {
     setLeft(true)
+    // Finalize the timelapse (if recording) and upload it in the background.
+    // This does NOT block the leave — the user exits immediately, the upload
+    // continues via the async finalizeTimelapseAndUpload call.
+    finalizeTimelapseAndUpload()
     if (lkRoomRef.current) {
       lkRoomRef.current.disconnect()
       lkRoomRef.current = null
@@ -391,7 +503,7 @@ export function RoomView({ id }: { id: string }) {
     await api.post("/rooms/" + id + "/presence", { action: "leave" }).catch(() => {})
     qc.invalidateQueries({ queryKey: ["rooms"] })
     navigate("/rooms")
-  }, [id, navigate, qc])
+  }, [id, navigate, qc, finalizeTimelapseAndUpload])
 
   // ── Camera toggle ──
   const toggleCam = async () => {
@@ -589,6 +701,26 @@ export function RoomView({ id }: { id: string }) {
           onClose={() => setShowWarning(false)}
           onUpgrade={() => { setShowWarning(false); navigate("/pricing") }}
         />
+      )}
+
+      {/* ── Study Timelapse opt-in prompt (shown ONCE on join, if supported) ── */}
+      {showTimelapsePrompt && !exhausted && (
+        <TimelapsePromptModal onEnable={startTimelapse} onDismiss={dismissTimelapsePrompt} />
+      )}
+
+      {/* ── Timelapse recording indicator (top-center, transparency) ── */}
+      {timelapseRecording && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-30 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-600/90 text-white text-xs font-medium backdrop-blur shadow-lg pointer-events-none">
+          <span className="size-2 rounded-full bg-white animate-pulse" />
+          Timelapse recording
+        </div>
+      )}
+      {/* ── Timelapse uploading indicator (after room exit) ── */}
+      {timelapseUploading && (
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-40 inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-card border shadow-lg text-sm">
+          <Loader2 className="size-4 animate-spin text-brand-emerald" />
+          Saving timelapse…
+        </div>
       )}
 
       {/* ── 5-minute video-quality upsell (free users, shown ONCE per room session) ── */}
@@ -1241,6 +1373,39 @@ function FreeWarningModal({ remaining, resetsAt, onClose, onUpgrade }: {
           </button>
           <button onClick={onUpgrade} className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium hover:bg-accent">
             View Other Plans
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Study Timelapse opt-in prompt ──
+// Shown ONCE on room join (if the browser supports capture). The user can
+// enable (start capture + camera permission) or dismiss (no capture, no
+// camera request). Dismissing does NOT re-prompt in the same session.
+function TimelapsePromptModal({ onEnable, onDismiss }: {
+  onEnable: () => void
+  onDismiss: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-40 bg-black/40 flex items-center justify-center p-4" onClick={onDismiss}>
+      <div className="bg-card rounded-xl shadow-2xl w-full max-w-sm p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+        <div className="size-12 rounded-xl bg-brand-emerald/10 flex items-center justify-center">
+          <Film className="size-6 text-brand-emerald" />
+        </div>
+        <div className="space-y-1">
+          <h3 className="text-lg font-bold">Create a study timelapse?</h3>
+          <p className="text-sm text-muted-foreground">
+            Turn on your camera to create a short timelapse of your study session. It's saved to your profile — private, only you can see it.
+          </p>
+        </div>
+        <div className="flex flex-col gap-2">
+          <button onClick={onEnable} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-brand-emerald text-white text-sm font-medium hover:opacity-90">
+            <Camera className="size-4" /> Enable Timelapse
+          </button>
+          <button onClick={onDismiss} className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm text-muted-foreground hover:bg-accent">
+            Not now
           </button>
         </div>
       </div>
