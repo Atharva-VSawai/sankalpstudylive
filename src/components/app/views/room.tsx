@@ -11,7 +11,7 @@ import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { AmbientSounds } from "@/components/app/ambient-sounds"
 import { Room, RoomEvent, Track, Participant, ParticipantEvent, ConnectionState, RemoteTrackPublication } from "livekit-client"
-import { buildRoomOptions, applyPolicyToAllRemoteTracks, applyRemoteQualityCap, pauseRemoteTrack, resumeRemoteTrack, countSubscribedRemoteVideoTracks, ClientVideoPolicy } from "@/lib/video-quality-client"
+import { buildRoomOptions, applyPolicyToAllRemoteTracks, applyRemoteQualityCap, reassertRemoteQualityCap, pauseRemoteTrack, resumeRemoteTrack, countSubscribedRemoteVideoTracks, ClientVideoPolicy } from "@/lib/video-quality-client"
 
 // ── Types ──
 type PomodoroConfig = { focusMin: number; breakMin: number; longBreakMin: number; rounds: number }
@@ -56,6 +56,7 @@ export function RoomView({ id }: { id: string }) {
   const lkRoomRef = useRef<Room | null>(null)
   const sessionIdRef = useRef<string | null>(null)
   const heartbeatRef = useRef<any>(null)
+  const qualityReassertRef = useRef<any>(null)
 
   // ── Free-allowance entitlement (server-authoritative) ──
   // The countdown is purely visual; the server is the source of truth. We fetch
@@ -186,6 +187,16 @@ export function RoomView({ id }: { id: string }) {
           applyRemoteQualityCap(pub as RemoteTrackPublication, policy)
         })
         lkRoom.on(RoomEvent.TrackUnsubscribed, updateParticipants)
+        // ── Re-assert quality caps when Adaptive Stream changes the stream state ──
+        // Adaptive Stream fires TrackStreamStateChanged when it pauses/resumes a
+        // layer. We re-assert our cap here so Adaptive Stream can never push the
+        // subscribed layer above the policy max (which would increase LiveKit
+        // billing). This is the critical fix for "starts low, then goes back to
+        // original quality" — without this, Adaptive Stream overrides the
+        // one-time setVideoQuality call after a few seconds.
+        lkRoom.on(RoomEvent.TrackStreamStateChanged, (pub, _streamState, _p) => {
+          reassertRemoteQualityCap(pub as RemoteTrackPublication, policy)
+        })
         lkRoom.on(RoomEvent.ConnectionStateChanged, (state) => {
           setConnectionState(state)
           if (state === ConnectionState.Disconnected) {
@@ -211,6 +222,18 @@ export function RoomView({ id }: { id: string }) {
         // Apply the quality cap to all remote tracks that already existed
         // before our TrackSubscribed listener was registered (race safety).
         applyPolicyToAllRemoteTracks(lkRoom, policy)
+
+        // ── Periodic quality-cap re-assertion (every 3s) ──
+        // Defense-in-depth against Adaptive Stream silently overriding the cap.
+        // setVideoDimensions/setVideoQuality are no-ops when the values haven't
+        // changed, so this does NOT cause extra API traffic — it just guarantees
+        // the server always forwards the capped layer. This is the fix for the
+        // "quality goes back to original after a few seconds" billing issue.
+        qualityReassertRef.current = setInterval(() => {
+          if (lkRoomRef.current) {
+            applyPolicyToAllRemoteTracks(lkRoomRef.current, policy)
+          }
+        }, 3000)
 
         // 5. Record room-entry time for the 5-min video-quality upsell (free
         //    users only). Paid users never see the upsell.
@@ -238,6 +261,7 @@ export function RoomView({ id }: { id: string }) {
                 lkRoomRef.current = null
               }
               if (heartbeatRef.current) clearInterval(heartbeatRef.current)
+              if (qualityReassertRef.current) clearInterval(qualityReassertRef.current)
               if (sessionIdRef.current) {
                 api.post("/study/sessions/" + sessionIdRef.current + "/stop").catch(() => {})
                 sessionIdRef.current = null
@@ -267,6 +291,7 @@ export function RoomView({ id }: { id: string }) {
         lkRoomRef.current = null
       }
       if (heartbeatRef.current) clearInterval(heartbeatRef.current)
+      if (qualityReassertRef.current) clearInterval(qualityReassertRef.current)
       if (sessionIdRef.current) {
         api.post("/study/sessions/" + sessionIdRef.current + "/stop").catch(() => {})
         sessionIdRef.current = null
@@ -358,6 +383,7 @@ export function RoomView({ id }: { id: string }) {
       lkRoomRef.current = null
     }
     if (heartbeatRef.current) clearInterval(heartbeatRef.current)
+    if (qualityReassertRef.current) clearInterval(qualityReassertRef.current)
     if (sessionIdRef.current) {
       try { await api.post("/study/sessions/" + sessionIdRef.current + "/stop") } catch {}
       sessionIdRef.current = null
@@ -731,8 +757,12 @@ function ParticipantTile({
   )
 }
 
-// ── Pinned layout: featured (pinned) participant fills the stage,
-//    remaining participants render as a horizontal thumbnail strip below.
+// ── Pinned layout (horizontal): pinned video big on the LEFT, self + others on the RIGHT ──
+// The pinned participant fills the left side (large rectangle, full height).
+// The right side is a vertical strip: the local user's self-view tile at the
+// top, then the other (non-pinned, non-self) participants below in a scrollable
+// vertical list. This matches the user's requested layout: pinned big-left,
+// self + others on the right.
 function PinnedLayout({
   participants,
   pinnedId,
@@ -747,12 +777,16 @@ function PinnedLayout({
   onPin: (id: string) => void
 }) {
   const pinned = participants.find((p) => p.identity === pinnedId) ?? participants[0]
+  const self = myId ? participants.find((p) => p.identity === myId) ?? null : null
+  // Others = everyone except the pinned participant. Self is rendered at the
+  // top of the right strip (if self exists and isn't the pinned one).
   const others = participants.filter((p) => p.identity !== pinned.identity)
+  const showSelfInStrip = self && self.identity !== pinned.identity
 
   return (
-    <div className="flex flex-col h-full w-full gap-2">
-      {/* Featured (pinned) tile fills the available stage */}
-      <div className="flex-1 min-h-0 relative">
+    <div className="flex h-full w-full gap-2">
+      {/* ── Left: big pinned video (takes most of the width, full height) ── */}
+      <div className="flex-1 min-w-0 min-h-0 relative">
         <ParticipantTile
           participant={pinned}
           isMe={pinned.identity === myId}
@@ -762,22 +796,38 @@ function PinnedLayout({
           fill
         />
       </div>
-      {/* Thumbnail strip for the remaining participants (scrolls if many) */}
+      {/* ── Right: vertical strip — self video at top, other participants below ── */}
       {others.length > 0 && (
-        <div className="flex-shrink-0 overflow-x-auto scroll-thin pb-1">
-          <div className="flex gap-2">
-            {others.map((p) => (
-              <div key={p.identity} className="w-[140px] sm:w-[160px] md:w-[200px] aspect-video flex-shrink-0">
-                <ParticipantTile
-                  participant={p}
-                  isMe={p.identity === myId}
-                  isPinned={false}
-                  onPin={onPin}
-                  onUnpin={onUnpin}
-                  fill
-                />
-              </div>
-            ))}
+        <div className="flex-shrink-0 w-[120px] sm:w-[150px] md:w-[200px] lg:w-[240px] flex flex-col gap-2 h-full overflow-hidden">
+          {/* Self video at the top of the right strip (only if self isn't pinned) */}
+          {showSelfInStrip && self && (
+            <div className="flex-shrink-0 aspect-video w-full">
+              <ParticipantTile
+                participant={self}
+                isMe
+                isPinned={false}
+                onPin={onPin}
+                onUnpin={onUnpin}
+                fill
+              />
+            </div>
+          )}
+          {/* Other participants (excluding pinned + self) in a vertical scroll list */}
+          <div className="flex-1 min-h-0 overflow-y-auto scroll-thin flex flex-col gap-2">
+            {others
+              .filter((p) => !showSelfInStrip || p.identity !== myId)
+              .map((p) => (
+                <div key={p.identity} className="flex-shrink-0 aspect-video w-full">
+                  <ParticipantTile
+                    participant={p}
+                    isMe={p.identity === myId}
+                    isPinned={false}
+                    onPin={onPin}
+                    onUnpin={onUnpin}
+                    fill
+                  />
+                </div>
+              ))}
           </div>
         </div>
       )}

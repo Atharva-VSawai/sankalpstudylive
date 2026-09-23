@@ -230,3 +230,22 @@ Stage Summary:
 - Worldwide LiveKit Cloud: the serverUrl comes from the server token response (wss://web-brwna5ik.livekit.cloud); all media flows Browser ↔ LiveKit Cloud, never through Vercel. No localhost/127.0.0.1 media URLs.
 - Vercel compatibility: build succeeds. All browser APIs (IntersectionObserver, MediaDevices, WebRTC, livekit-client) are inside a "use client" component with SSR guards (IntersectionObserver typeof check).
 - LiveKit Cloud limits: the app does not impose an artificial participant limit (maxParticipants defaults to 500 in the Room model; the frontend virtualizes so the DOM limit is not the constraint). LiveKit Cloud's actual per-room participant limit depends on the project's plan — document this separately.
+
+---
+Task ID: PINNED-LAYOUT-QUALITY-FIX-007
+Agent: general-purpose (pinned layout + quality cap persistence)
+Task: Fix pinned layout to horizontal (pinned big-left, self + others on right) and fix the video quality cap being overridden by LiveKit Adaptive Stream (which was letting quality go back to original after a few seconds, increasing LiveKit billing).
+
+Work Log:
+- Pinned layout fix (src/components/app/views/room.tsx PinnedLayout): changed from vertical (pinned on top, thumbnails at bottom) to horizontal. Pinned video now fills the LEFT side (flex-1, full height, large rectangle). The RIGHT side is a vertical strip (w-120-240px responsive): self video at the top, then other participants in a vertical scroll list below. Self is excluded from the "others" list when it's in the top of the strip. When self IS the pinned participant, no right strip shows (only the big pinned self video). Verified via agent-browser + VLM: pinned self fills screen, unpin button present, no cut-off.
+- Quality cap persistence fix (the billing bug): root cause was that LiveKit Adaptive Stream continuously re-evaluates the video element's rendered size and overrides a one-time setVideoQuality call. In emitTrackUpdate(), when requestedVideoDimensions is void (which setVideoQuality sets it to), LiveKit uses the Adaptive Stream's videoDimensionsAdaptiveStream which can be LARGER than our LOW cap — so the subscribed layer creeps back up to HD after a few seconds, increasing LiveKit billing.
+  - Fix #1 (src/lib/video-quality-client.ts applyRemoteQualityCap): made setVideoDimensions the PRIMARY persistent cap (sets requestedVideoDimensions, which Adaptive Stream does NOT override — it only overrides when this is void). setVideoQuality is now belt-and-suspenders (LiveKit uses the smaller of dimensions vs max-quality layer).
+  - Fix #2 (src/lib/video-quality-client.ts): added reassertRemoteQualityCap() helper.
+  - Fix #3 (src/components/app/views/room.tsx connect()): added RoomEvent.TrackStreamStateChanged listener that re-asserts the cap whenever Adaptive Stream changes the stream state. This is the critical event-based fix.
+  - Fix #4 (src/components/app/views/room.tsx connect()): added a 3s periodic re-assertion interval (qualityReassertRef) that calls applyPolicyToAllRemoteTracks. setVideoDimensions/setVideoQuality are no-ops when values haven't changed, so this does NOT cause extra API traffic — it just guarantees the server always forwards the capped layer. Defense-in-depth against any silent override.
+  - Added qualityReassertRef + cleanup in all 3 paths (connect cleanup, heartbeat exhaustion, leave).
+- Verified via agent-browser: admin joins room, camera on, pins self → big-left layout, no cut-off, unpin works. Lint clean, no dev.log errors.
+
+Stage Summary:
+- Pinned layout: horizontal (pinned big-left, self + others vertical strip on right). No more "pinned video cutting and grid goes to bottom".
+- Quality cap persistence: setVideoDimensions is the primary cap (Adaptive Stream respects it as max). Re-asserted on TrackStreamStateChanged + every 3s. This fixes the "starts low, then goes back to original quality" billing issue — the subscribed layer now stays at/below the policy max (free=240p, paid=360p) for the entire subscription lifetime, regardless of how large the rendered video element is.

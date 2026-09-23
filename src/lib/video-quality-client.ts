@@ -61,10 +61,14 @@ export function buildRoomOptions(policy: ClientVideoPolicy) {
 }
 
 // ── Apply the subscriber-side cap to a single remote camera publication. ──
-// Called once per remote camera track. setVideoQuality caps the subscribed
-// simulcast layer at the policy's max quality. LiveKit Adaptive Stream may
-// further downgrade the layer based on the rendered <video> element's actual
-// size, but it will never exceed this cap.
+// Called once per remote camera track, AND re-asserted periodically because
+// LiveKit Adaptive Stream continuously re-evaluates the video element's rendered
+// size and can override a one-time setVideoQuality call — which would let the
+// subscribed layer creep back up to the publisher's HD layer and increase
+// LiveKit billing. We use setVideoDimensions as the PRIMARY persistent cap
+// because Adaptive Stream respects `requestedVideoDimensions` as a max (it
+// only overrides when requestedVideoDimensions is void). We also call
+// setVideoQuality as a belt-and-suspenders backstop.
 //
 // Returns true if a cap was applied (track is a remote camera), false otherwise.
 export function applyRemoteQualityCap(
@@ -76,17 +80,36 @@ export function applyRemoteQualityCap(
   // Only cap REMOTE tracks; local tracks are published by us and are already HD.
   if (!pub.isRemote) return false
   try {
-    pub.setVideoQuality(toVideoQuality(policy.remoteGridMaxQuality))
-    // Also hint the rendered dimensions so Adaptive Stream never requests a
-    // layer above the cap even if the tile is large.
+    // PRIMARY cap: setVideoDimensions sets `requestedVideoDimensions`, which
+    // Adaptive Stream does NOT override (it only overrides when this is void).
+    // This is the persistent cap that keeps the subscribed layer at/below the
+    // policy max for the entire subscription lifetime, regardless of how large
+    // the rendered <video> element is.
     pub.setVideoDimensions({
       width: Math.round((policy.remoteGridMaxHeightPx * 16) / 9),
       height: policy.remoteGridMaxHeightPx,
     })
+    // BELT-AND-SUSPENDERS: also set the max quality level. When
+    // requestedVideoDimensions is set, LiveKit uses the SMALLER of the two
+    // (dimensions vs max-quality layer), so this never raises the cap above
+    // setVideoDimensions; it just adds a second floor.
+    pub.setVideoQuality(toVideoQuality(policy.remoteGridMaxQuality))
     return true
   } catch {
     return false
   }
+}
+
+// ── Re-assert the quality cap on a single remote camera publication. ──
+// Called on a short interval (e.g. every 3s) and on TrackStreamStateChanged
+// events to defend against Adaptive Stream overriding the cap. Safe to call
+// repeatedly — setVideoDimensions/setVideoQuality are no-ops if the values
+// haven't changed (LiveKit deduplicates the update message).
+export function reassertRemoteQualityCap(
+  pub: RemoteTrackPublication | undefined,
+  policy: ClientVideoPolicy
+): void {
+  applyRemoteQualityCap(pub, policy)
 }
 
 // ── Pause a remote track when its tile is scrolled off-screen. ──
