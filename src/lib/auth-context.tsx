@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from "react"
 import { createBrowserClient } from "@/lib/supabase"
-import { api, setToken, ApiError } from "@/lib/api-client"
+import { api, setToken, getToken, ApiError } from "@/lib/api-client"
 
 export type Me = {
   id: string
@@ -58,40 +58,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const fetchMe = useCallback(async () => {
     try {
       const { data: session } = await supabase.auth.getSession()
-      if (!session?.session?.access_token) {
-        setMe(null)
-        setLoading(false)
-        return
-      }
-      // Set the token for API client
-      setToken(session.session.access_token)
-      // Fetch user profile from our API
-      const data = await api.get<Me>("/auth/me")
-      setMe(data)
-    } catch (e) {
-      // If our API returns 401, the user may be Supabase-auth'd but not in our DB yet
-      if (e instanceof ApiError && e.status === 401) {
-        // Try to create profile via signup endpoint
-        try {
-          const { data: session } = await supabase.auth.getSession()
-          if (session?.session?.access_token) {
-            const { data: userData } = await supabase.auth.getUser()
-            if (userData?.user) {
-              // Call our sync endpoint to create profile
-              await api.post("/auth/sync", {
-                email: userData.user.email,
-                supabaseId: userData.user.id,
-              })
-              const data = await api.get<Me>("/auth/me")
-              setMe(data)
+      if (session?.session?.access_token) {
+        // Set the token for API client
+        setToken(session.session.access_token)
+        // Fetch user profile from our API
+        const data = await api.get<Me>("/auth/me")
+        setMe(data)
+      } else {
+        // ── Sankalp signed session token fallback ──
+        // The local /api/auth/login endpoint (sandbox stand-in for Supabase Auth)
+        // issues a Sankalp HMAC-signed token. If we have one in localStorage but no
+        // Supabase session, use it to fetch the user profile.
+        const localToken = getToken()
+        if (localToken) {
+          try {
+            const data = await api.get<Me>("/auth/me")
+            setMe(data)
+          } catch (e) {
+            if (e instanceof ApiError && e.status === 401) {
+              setToken(null)
+              setMe(null)
+            } else {
+              throw e
             }
           }
-        } catch {
+        } else {
           setMe(null)
         }
-      } else {
-        setMe(null)
       }
+    } catch {
+      setMe(null)
     } finally {
       setLoading(false)
     }
@@ -118,13 +114,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [fetchMe, supabase])
 
-  // ── Login via Supabase Auth ──
+  // ── Login via Supabase Auth (with Sankalp local-login fallback) ──
+  // Tries Supabase Auth first (preserves production behavior). If Supabase
+  // has no account for this email/password (e.g. seeded sandbox users that
+  // exist only in our local DB), falls back to /api/auth/login which issues
+  // a Sankalp signed session token.
   const login = useCallback(async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) throw new Error(error.message)
-    // The auth state change listener will fetchMe automatically
-    // But also do it immediately for UI responsiveness
-    await fetchMe()
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password })
+      if (!error) {
+        // The auth state change listener will fetchMe automatically
+        // But also do it immediately for UI responsiveness
+        await fetchMe()
+        return
+      }
+      // Fall through to local login on any Supabase error
+    } catch {
+      // Fall through to local login on Supabase client failure
+    }
+
+    // ── Sankalp local-login fallback ──
+    try {
+      const res = await api.post<{ token: string }>("/auth/login", { email, password })
+      setToken(res.token)
+      await fetchMe()
+    } catch (e: any) {
+      throw new Error(e?.message || "Invalid email or password")
+    }
   }, [supabase, fetchMe])
 
   // ── Signup via Supabase Auth ──

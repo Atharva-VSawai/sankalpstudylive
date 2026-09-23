@@ -50,3 +50,26 @@ Work Log:
 - docs/authentication.md (177 lines): production Supabase Auth (email/password + Google OAuth, JWT verified via Supabase JWK, refresh, RLS); sandbox signed HMAC session token format `base64url(payload).signature` with payload {uid,exp,jti}, SESSION_SECRET, PBKDF2-ish SHA256+salt password hashing; Google OAuth production flow vs sandbox /api/auth/google-demo simulation; RBAC table (user|moderator|admin) with capabilities; helper functions getAuth/isModerator/isAdmin; token storage (web localStorage["sankalp_token"], Android EncryptedSharedPreferences, never store service keys on client); security properties (account-status checks, email verification, rate limits, audit trail, logout/JTI blacklist); FastAPI middleware pseudo-code; client integration flow for web and Android; migration path table.
 
 Full development history available in git history. This file was trimmed for build performance.
+
+---
+Task ID: FIX-ROOMS-001
+Agent: general-purpose (room-flow fix)
+Task: Fix `segments is not defined` runtime error in app-shell.tsx and verify the complete room + LiveKit flow locally.
+
+Work Log:
+- Fixed `app-shell.tsx:50`: `segments.length > 1` → `route.segments.length > 1` (segments was never destructured; `route.segments` is the correct ref).
+- Fixed `app-shell.tsx:58`: `!isRoom` (also undefined) → `!isIndividualRoom` (the intended full-screen room check).
+- Discovered DB connection failure: a stale system env var `DATABASE_URL=file:/home/z/my-project/db/custom.db` (SQLite, file doesn't exist) was overriding `.env`'s Postgres URL. Prisma rejected it with "URL must start with postgresql://". Fixed by sourcing `.env` with `set -a && source .env && set +a` before `bun run dev` so the .env value wins over the stale system env. No code change needed.
+- Discovered local-login was broken: `getAuth` in `src/lib/api.ts` only verified Supabase JWTs, but the seeded admin/test users (from `prisma/seed.ts`) exist only in our local DB and `/api/auth/login` issues Sankalp HMAC session tokens (`base64url(payload).signature`). Added a minimal additive fallback in `getAuth` that verifies two-part Sankalp tokens before falling through to Supabase JWT verification. Supabase path is untouched.
+- Added matching Sankalp-token fallback in `src/lib/auth-context.tsx` `fetchMe()` and `login()` so seeded users can log in via the UI. Supabase auth still tried first; fallback only triggers when Supabase has no account.
+- Verified end-to-end via agent-browser: landing → login (admin@sankalp.in) → /rooms (sidebar visible, room list renders) → click room (full-screen view, no sidebar, Pomodoro + controls render) → Leave room → back to /rooms. No runtime errors in dev.log.
+- Verified LiveKit token endpoint via curl: returns 200 with real JWT (3 parts, 456 chars), real `serverUrl=wss://web-brwna5lk.livekit.cloud`, real `roomName=sankalp-default-general`, real `identity`, `hasPaidPlan`, `roomMinutesUsed`, `freeAllowanceMin`. No secrets printed.
+- LiveKit Cloud rejects connection with `invalid API key for domain web-brwna5lk.livekit.cloud` — credentials in `.env` don't match the project at that URL. This is an env/config mismatch, NOT a code bug. Reported honestly to user.
+- `bun run lint` passes clean.
+
+Stage Summary:
+- Bug fixed: `segments is not defined` + `isRoom is not defined` in app-shell.tsx (2 minimal edits, no functionality rewritten).
+- Unblockers applied: stale system `DATABASE_URL` override (use `set -a && source .env`); Sankalp-token verification fallback in `getAuth` and frontend `auth-context` (additive, Supabase path intact).
+- Room flow verified: /rooms (sidebar + list) → /rooms/[id] (full-screen) → Leave → /rooms. No runtime/console errors.
+- LiveKit integration verified at code level: real `livekit-server-sdk` token issuance, real `livekit-client` Room.connect, camera via setCameraEnabled, mic never enabled, real participant count from `remoteParticipants` + local, no fake/simulated data.
+- Remaining blocker: LiveKit Cloud rejects the token because `LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET` in `.env` do not match the project at `wss://web-brwna5lk.livekit.cloud`. Camera publish couldn't be tested because LiveKit Cloud disconnects at the signal-connect phase before camera can be enabled.

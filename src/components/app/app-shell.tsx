@@ -47,7 +47,7 @@ export function AppShell() {
   const isAdminArea = path === "/admin" || path.startsWith("/admin/")
   // Only individual room views (e.g. /rooms/abc123) are full-screen (no chrome).
   // The /rooms listing page uses the normal authenticated layout with sidebar.
-  const isIndividualRoom = path.startsWith("/rooms/") && segments.length > 1
+  const isIndividualRoom = path.startsWith("/rooms/") && route.segments.length > 1
 
   // Redirect rules
   useEffect(() => {
@@ -55,7 +55,7 @@ export function AppShell() {
     if (requiresAuth && !me) {
       navigate(`/login?next=${encodeURIComponent(path)}`, { replace: true })
     }
-    if (me && !me.profile.onboardingComplete && path !== "/onboarding" && requiresAuth && path !== "/rooms" && !isRoom) {
+    if (me && !me.profile.onboardingComplete && path !== "/onboarding" && requiresAuth && path !== "/rooms" && !isIndividualRoom) {
       navigate("/onboarding", { replace: true })
     }
     if (isAdminArea && me && me.role !== "admin" && me.role !== "moderator") {
