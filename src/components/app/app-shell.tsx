@@ -30,10 +30,11 @@ import { PublicProfileView } from "@/components/app/views/public-profile"
 import { NotificationsView } from "@/components/app/views/notifications"
 import { SettingsView } from "@/components/app/views/settings"
 import { PricingView } from "@/components/app/views/pricing"
+import { PaywallView } from "@/components/app/views/paywall"
 import { LegalView } from "@/components/app/views/legal"
 import { AdminView } from "@/components/app/views/admin"
 
-const AUTHED_PREFIXES = ["/dashboard", "/study", "/journal", "/communities", "/rooms", "/leaderboard", "/friends", "/profile", "/notifications", "/settings", "/onboarding", "/admin"]
+const AUTHED_PREFIXES = ["/dashboard", "/study", "/journal", "/communities", "/rooms", "/leaderboard", "/friends", "/profile", "/notifications", "/settings", "/paywall", "/onboarding", "/admin"]
 
 export function AppShell() {
   const { route, navigate } = useRouter()
@@ -167,6 +168,7 @@ function renderView(path: string, segments: string[], me: any): React.ReactNode 
   if (path === "/friends") return <FriendsView />
   if (path === "/notifications") return <NotificationsView />
   if (path === "/settings") return <SettingsView />
+  if (path === "/paywall") return <PaywallView />
   if (path === "/profile") return <ProfileView />
   if (path === "/communities") return <CommunitiesView />
   if (segments[0] === "communities" && segments[1]) return <CommunityDetailView slug={segments[1]} />

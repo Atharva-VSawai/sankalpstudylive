@@ -400,10 +400,12 @@ model Notification {
 model Subscription {
   id          String   @id @default(cuid())
   userId      String   @unique
-  plan        String   @default("free") // free | plus | pro
-  status      String   @default("active") // active | canceled | past_due
+  // plan: free | focus_pass | monthly | halfyear | yearly
+  plan        String   @default("free")
+  status      String   @default("active") // active | expired | canceled | past_due
   startedAt   DateTime @default(now())
-  renewsAt    DateTime?
+  expiresAt   DateTime? // when the paid plan expires (null for free)
+  renewsAt    DateTime? // when a recurring plan renews (monthly only)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -415,9 +417,9 @@ model Payment {
   userId      String
   amount      Int // in paise (INR)
   currency    String   @default("INR")
-  plan        String
+  plan        String // focus_pass | monthly | halfyear | yearly
   provider    String   @default("razorpay")
-  providerRef String?
+  providerRef String? // razorpay order_id / payment_id
   status      String   @default("pending") // pending | paid | failed | refunded
   createdAt   DateTime @default(now())
 

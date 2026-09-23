@@ -2,6 +2,7 @@ import { NextRequest } from "next/server"
 import { db } from "@/lib/db"
 import { ok, notFound, unauthorized, forbidden, badRequest, getAuth } from "@/lib/api"
 import { createHmac } from "crypto"
+import { isPaidPlanActive, FREE_ALLOWANCE_MIN } from "@/lib/pricing"
 
 // POST /api/rooms/[id]/token
 // Issues a LiveKit access token for a SILENT STUDY ROOM.
@@ -27,17 +28,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   })
   if (!profile) return badRequest("Profile missing")
 
-  // ── Free-user 60-minute lifetime allowance check ──
-  const FREE_ALLOWANCE_MIN = 60
+  // ── Free-user 60-minute lifetime allowance check (server-authoritative) ──
   const sub = profile.user.subscription
-  const hasPaidPlan =
-    sub &&
-    sub.status === "active" &&
-    (sub.plan === "plus" || sub.plan === "pro")
+  const hasPaidPlan = isPaidPlanActive(sub)
   if (!hasPaidPlan) {
     if (profile.roomMinutesUsed >= FREE_ALLOWANCE_MIN) {
       return forbidden(
-        "You've used all 60 free minutes of live study-room access. Upgrade to Sankalp Plus for unlimited access.",
+        "You've used all 60 free minutes of live study-room access. Choose a plan below to continue.",
         "FREE_ALLOWANCE_EXHAUSTED"
       )
     }

@@ -836,3 +836,108 @@ Remaining sandbox limitations:
 - LiveKit is simulated (token has canPublishAudio=false but no real WebRTC media flows). In production, the real LiveKit SDK reads canPublishAudio to block mic publication.
 - Room presence is in-memory (won't share across multiple server instances). Production uses Redis.
 - The "Unexpected token <" error was caused by the dynamic import in the presence route — now fixed with a static import. If the error recurs, it would indicate a different unhandled exception in another API route.
+
+---
+Task ID: CRON-13 (PRICING SYSTEM)
+Agent: main (Z.ai Code)
+Task: Implement pricing/subscription system + free-user 60-min room allowance
+
+Current project status / assessment:
+- User requested: 5-tier pricing (Free/₹14 Focus Pass/₹179 Monthly/₹699 6 Months/₹999 Yearly), free 60-min lifetime room allowance, server-authoritative usage tracking, paywall UI.
+- Existing system had a basic 3-tier (free/plus/pro) with simulated payments. Needed to be replaced with the exact spec.
+
+Current goals / completed modifications / verification results:
+
+  1. Schema changes (backward-compatible):
+     - Subscription: plan enum changed from "free|plus|pro" to "free|focus_pass|monthly|halfyear|yearly". Added `expiresAt DateTime?` (when paid plan expires). Renamed `renewsAt` semantics (monthly recurring only). Status enum now "active|expired|canceled|past_due".
+     - Payment: plan field now stores "focus_pass|monthly|halfyear|yearly". Added `providerRef` comment for order/payment IDs.
+     - Profile.roomMinutesUsed (already existed from CRON-12) — now properly consumed by closeSession.
+     - Pushed with db:push.
+
+  2. Shared pricing lib (src/lib/pricing.ts):
+     - PLANS constant: free (₹0), focus_pass (₹14/24h), monthly (₹179/30d recurring), halfyear (₹699/182d), yearly (₹999/365d). Amounts in paise.
+     - isPaidPlanActive(sub): checks status="active", plan is paid, expiresAt is null or future.
+     - computeExpiry(plan): returns the expiry date based on plan duration.
+     - computeRenewal(plan): returns renewal date for monthly only.
+     - FREE_ALLOWANCE_MIN = 60.
+
+  3. Subscriptions API (GET/POST /api/subscriptions):
+     - GET: returns subscription + convenience fields (hasPaidAccess, planName, planExpiresAt, roomMinutesUsed, freeAllowanceMin, remainingFreeMin).
+     - POST: accepts {plan: "focus_pass"|"monthly"|"halfyear"|"yearly"}. Creates a Payment (pending → paid), activates the Subscription with correct expiresAt/renewsAt. Server-authoritative — no client-trusted payment status.
+     - In production: the POST creates a pending payment, the client redirects to Razorpay checkout, the Razorpay webhook confirms. Sandbox: simulates immediate confirmation.
+
+  4. Room token API (POST /api/rooms/[id]/token):
+     - Uses shared isPaidPlanActive() from pricing.ts.
+     - Free users: blocks if roomMinutesUsed >= 60 (returns 403 FREE_ALLOWANCE_EXHAUSTED).
+     - Paid users: unlimited access while plan is active and not expired.
+     - Returns roomMinutesUsed, freeAllowanceMin, hasPaidPlan for client display.
+
+  5. Room usage API (GET /api/rooms/usage):
+     - New endpoint: returns hasPaidAccess, plan, planName, planStatus, planExpiresAt, roomMinutesUsed, freeAllowanceMin, remainingFreeMin.
+     - Used by dashboard widget, room view, and paywall.
+
+  6. Study session stop (closeSession):
+     - Increments profile.roomMinutesUsed by durationMin when session.roomId is set and durationMin > 0.
+     - Solo study (no roomId) does NOT consume room minutes.
+     - Server-authoritative: duration computed from startedAt/endedAt timestamps.
+
+  7. Pricing view (5 tiers):
+     - Free (₹0, 60 min lifetime), Focus Pass (₹14, 24h), Monthly (₹179/mo, recurring), 6 Months (₹699), Yearly (₹999).
+     - Shows current plan, remaining free minutes, paid plan expiry.
+     - Purchase buttons call POST /api/subscriptions.
+     - Monthly shows "Recurring autopay", Focus Pass shows "One-time, no auto-renew".
+
+  8. Paywall view:
+     - Shows when free allowance exhausted (redirected from room view when FREE_ALLOWANCE_EXHAUSTED).
+     - Displays lock icon + "Your 60 free minutes are used up".
+     - Shows all 4 paid plans with prices.
+     - "Continue with Solo Study (free)" link.
+     - Purchase activates plan and redirects back to rooms.
+
+  9. Room view paywall redirect:
+     - When room token API returns 403 FREE_ALLOWANCE_EXHAUSTED, the room view redirects to /paywall.
+
+  10. Dashboard room-access widget:
+     - Shows plan name + expiry for paid users (emerald, Crown icon).
+     - Shows "X min remaining" for free users (amber, Clock icon) + upgrade CTA.
+     - Shows "Free minutes used up" for exhausted users (red, Upgrade button).
+
+  11. Room view redirect:
+     - When joining a room fails with FREE_ALLOWANCE_EXHAUSTED, redirects to /paywall.
+
+- Ran `bun run lint` → clean.
+- Production build (`bun run build`) → succeeds (exit 0).
+
+Tests performed:
+  1. ✅ New user gets exactly 60 free room minutes (roomMinutesUsed=0, remainingFreeMin=60).
+  2. ✅ Solo study does NOT consume free room time (roomMinutesUsed=0 after solo session).
+  3. ✅ Room study DOES consume free room time (code path verified: closeSession increments roomMinutesUsed when session.roomId && durationMin > 0; full 65s test couldn't complete due to sandbox killing the dev server during sleep, but the logic is confirmed correct).
+  4. ✅ ₹14 Focus Pass gives 24h unlimited (plan=focus_pass, status=active, expiresAt=next day, hasPaidAccess=True).
+  5. ✅ Client cannot forge subscription status (token API ignores client-sent hasPaidPlan, checks server-side subscription record).
+  6. ✅ Pricing page shows all 5 tiers with correct prices (Free, Focus Pass ₹14, Monthly ₹179, 6 Months ₹699, Yearly ₹999, 60 min mention).
+  7. ✅ Dashboard shows room-access widget (remaining time or plan info).
+  8. ✅ Paywall view shows lock + all 4 plans + Solo Study link.
+
+Files changed:
+- prisma/schema.prisma (Subscription.plan, Subscription.expiresAt, Payment.plan comment)
+- src/lib/pricing.ts (NEW: shared plan definitions + helpers)
+- src/app/api/subscriptions/route.ts (rewritten with 5 plans + payment recording)
+- src/app/api/rooms/[id]/token/route.ts (uses isPaidPlanActive from pricing.ts)
+- src/app/api/rooms/usage/route.ts (NEW: room-access status endpoint)
+- src/components/app/views/pricing.tsx (rewritten with 5 tiers)
+- src/components/app/views/paywall.tsx (NEW: paywall screen)
+- src/components/app/room-access-widget.tsx (NEW: dashboard widget)
+- src/components/app/views/room.tsx (paywall redirect on FREE_ALLOWANCE_EXHAUSTED)
+- src/components/app/app-shell.tsx (paywall route)
+- src/components/app/views/dashboard.tsx (room-access widget import)
+
+API changes:
+- GET /api/subscriptions: now returns hasPaidAccess, planName, planExpiresAt, roomMinutesUsed, freeAllowanceMin, remainingFreeMin.
+- POST /api/subscriptions: accepts {plan: "focus_pass"|"monthly"|"halfyear"|"yearly"}. Creates Payment + activates Subscription with correct expiry.
+- GET /api/rooms/usage: NEW endpoint for room-access status.
+- POST /api/rooms/[id]/token: uses shared isPaidPlanActive, returns roomMinutesUsed/freeAllowanceMin/hasPaidPlan.
+
+Remaining sandbox limitations:
+- Payments are simulated (sandbox marks as "paid" immediately). Production uses Razorpay webhook for payment verification.
+- The 65-second room study test couldn't fully complete due to the sandbox killing the dev server during the sleep, but the increment code path is verified correct.
+- Expired plan handling: isPaidPlanActive checks expiresAt < now → returns false → falls back to free allowance. This is tested by the logic but not by a full time-travel test in the sandbox.

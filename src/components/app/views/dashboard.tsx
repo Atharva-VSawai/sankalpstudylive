@@ -13,6 +13,7 @@ import { StreakFreezeCard } from "@/components/app/streak-freeze-card"
 import { WeeklyStatsCard } from "@/components/app/weekly-stats-card"
 import { WeeklyGoalRing } from "@/components/app/weekly-goal-ring"
 import { GoalTrendSparkline } from "@/components/app/goal-trend-sparkline"
+import { RoomAccessWidget } from "@/components/app/room-access-widget"
 import { BuddiesOnlineWidget } from "@/components/app/buddies-online-widget"
 import { AchievementsThisWeek } from "@/components/app/achievements-this-week"
 import { SessionNoteDialog } from "@/components/app/session-note-dialog"
@@ -215,6 +216,7 @@ export function DashboardView() {
           </CardContent>
         </Card>
         <div className="space-y-4">
+          <RoomAccessWidget />
           <BuddiesOnlineWidget />
           <WeeklyGoalRing />
           <WeeklyStatsCard />

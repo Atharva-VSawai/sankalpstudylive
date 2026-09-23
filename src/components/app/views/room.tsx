@@ -92,8 +92,14 @@ export function RoomView({ id }: { id: string }) {
           api.post(`/rooms/${id}/presence`, { action: "heartbeat" }).catch(() => {})
         }, 20000)
       } catch (e: any) {
-        toast.error(e.message || "Failed to join room")
-        navigate("/rooms")
+        // If free allowance exhausted, redirect to paywall
+        if (e?.code === "FREE_ALLOWANCE_EXHAUSTED" || e?.status === 403) {
+          toast.error("Your 60 free minutes are used up. Upgrade for unlimited access.")
+          navigate("/paywall", { replace: true })
+        } else {
+          toast.error(e.message || "Failed to join room")
+          navigate("/rooms")
+        }
       }
     }
     join()
