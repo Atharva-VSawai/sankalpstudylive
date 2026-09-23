@@ -6,15 +6,22 @@ import { api, getToken } from "@/lib/api-client"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Avatar, LiveDot } from "@/components/app/brand"
 import { useRouter, Link } from "@/lib/router"
 import { useAuth } from "@/lib/auth-context"
 import {
   Mic, MicOff, Video, VideoOff, PhoneOff, Send, Play, Square, Coffee, Timer,
   Users, MessageSquare, Settings, Crown, Volume2, Hand, LogOut, Lock, Focus, Sparkles, Zap, Smile, Share2,
+  MonitorUp, UserPlus, Search,
 } from "lucide-react"
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from "@/components/ui/dialog"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
+import { useConfetti } from "@/components/app/confetti"
+import { AmbientSounds } from "@/components/app/ambient-sounds"
 
 type Participant = {
   userId: string
@@ -38,6 +45,7 @@ export function RoomView({ id }: { id: string }) {
   const { route, navigate } = useRouter()
   const { me } = useAuth()
   const qc = useQueryClient()
+  const confetti = useConfetti()
 
   const { data, isLoading } = useQuery({
     queryKey: ["room", id],
@@ -58,6 +66,10 @@ export function RoomView({ id }: { id: string }) {
   const [floatingReactions, setFloatingReactions] = useState<FloatingReaction[]>([])
   const [showReactions, setShowReactions] = useState(false)
   const [showShare, setShowShare] = useState(false)
+  const [showInvite, setShowInvite] = useState(false)
+  const [inviteUsername, setInviteUsername] = useState("")
+  const [inviteSearch, setInviteSearch] = useState("")
+  const [screenSharing, setScreenSharing] = useState(false)
 
   const sessionIdRef = useRef<string | null>(null)
   const esRef = useRef<EventSource | null>(null)
@@ -158,6 +170,24 @@ export function RoomView({ id }: { id: string }) {
     setCamOn(v)
     try { await api.patch(`/rooms/${id}/presence`, { camOn: v }) } catch {}
   }
+  const toggleScreenShare = async () => {
+    const v = !screenSharing
+    setScreenSharing(v)
+    try { await api.patch(`/rooms/${id}/presence`, { screenSharing: v }) } catch {}
+    if (v) toast.success("Screen share started (simulated). Others will see your screen tile highlighted.")
+    else toast.info("Screen share stopped.")
+  }
+
+  const sendInvite = async (username?: string) => {
+    const u = (username ?? inviteUsername).trim().toLowerCase()
+    if (!u) { toast.error("Enter a username"); return }
+    try {
+      await api.post(`/rooms/${id}/invite`, { username: u })
+      toast.success(`Invited @${u} to this room`)
+      setInviteUsername("")
+      setShowInvite(false)
+    } catch (e: any) { toast.error(e.message || "Failed to invite") }
+  }
 
   const sendMessage = async () => {
     const text = chatText.trim()
@@ -202,6 +232,9 @@ export function RoomView({ id }: { id: string }) {
       toast.success(`Studied ${mins}m · +${xp} XP${res.streak ? ` · 🔥 ${res.streak}d` : ""}`)
       if (res.awardedBadges?.length) {
         for (const b of res.awardedBadges) toast(`Badge earned: ${b.name}`, { description: b.description })
+        confetti.burst(120)
+      } else if (mins >= 25) {
+        confetti.burst(60)
       }
       qc.invalidateQueries({ queryKey: ["me"] })
       qc.invalidateQueries({ queryKey: ["goals"] })
@@ -368,6 +401,7 @@ export function RoomView({ id }: { id: string }) {
       <div className="flex items-center justify-center gap-3 h-20 border-t bg-card/80 backdrop-blur relative" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
         <ControlBtn active={micOn} onClick={toggleMic} on={<Mic className="size-5" />} off={<MicOff className="size-5" />} label={micOn ? "Mute" : "Unmute"} />
         <ControlBtn active={camOn} onClick={toggleCam} on={<Video className="size-5" />} off={<VideoOff className="size-5" />} label={camOn ? "Stop video" : "Start video"} />
+        <ControlBtn active={screenSharing} onClick={toggleScreenShare} on={<MonitorUp className="size-5" />} off={<MonitorUp className="size-5" />} label={screenSharing ? "Stop share" : "Share screen"} />
 
         {/* Reactions */}
         <div className="relative">
@@ -397,9 +431,17 @@ export function RoomView({ id }: { id: string }) {
         </div>
 
         {/* Share */}
-        <button onClick={shareRoom} className="inline-flex flex-col items-center gap-1" title="Share room">
+        <button onClick={shareRoom} className="inline-flex flex-col items-center gap-1" title="Copy room link">
           <span className="inline-flex items-center justify-center size-12 rounded-full bg-muted text-muted-foreground hover:bg-accent transition-colors">
             <Share2 className="size-5" />
+          </span>
+          <span className="text-[10px] text-muted-foreground">Link</span>
+        </button>
+
+        {/* Invite friend */}
+        <button onClick={() => setShowInvite(true)} className="inline-flex flex-col items-center gap-1" title="Invite a friend">
+          <span className="inline-flex items-center justify-center size-12 rounded-full bg-muted text-muted-foreground hover:bg-accent transition-colors">
+            <UserPlus className="size-5" />
           </span>
           <span className="text-[10px] text-muted-foreground">Invite</span>
         </button>
@@ -443,14 +485,128 @@ export function RoomView({ id }: { id: string }) {
           </div>
         </div>
       )}
+
+      {/* Invite friend dialog */}
+      <InviteDialog
+        open={showInvite}
+        onOpenChange={setShowInvite}
+        inviteUsername={inviteUsername}
+        setInviteUsername={setInviteUsername}
+        inviteSearch={inviteSearch}
+        setInviteSearch={setInviteSearch}
+        onInvite={sendInvite}
+      />
+
+      {/* Ambient sounds — collapsible panel in the corner */}
+      <div className="absolute top-16 right-3 w-56 z-20 hidden lg:block">
+        <AmbientSounds compact />
+      </div>
+
+      {confetti.ConfettiLayer}
     </div>
   )
 }
 
-function ParticipantTile({ p, isMe, isHost }: { p: Participant; isMe?: boolean; isHost?: boolean }) {
+function InviteDialog({
+  open, onOpenChange, inviteUsername, setInviteUsername, inviteSearch, setInviteSearch, onInvite,
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  inviteUsername: string
+  setInviteUsername: (v: string) => void
+  inviteSearch: string
+  setInviteSearch: (v: string) => void
+  onInvite: (username?: string) => void
+}) {
+  const { data: friendsData } = useQuery({
+    queryKey: ["friends"],
+    queryFn: () => api.get<{ friends: any[]; incoming: any[]; outgoing: any[] }>("/friends"),
+  })
+  const { data: searchData } = useQuery({
+    queryKey: ["search", inviteSearch],
+    queryFn: () => api.get<{ users: any[] }>("/search/users", { q: inviteSearch, limit: 8 }),
+    enabled: inviteSearch.length >= 1,
+  })
+  const friends = (friendsData?.friends ?? []).filter((f: any) =>
+    !inviteSearch || f.username.includes(inviteSearch.toLowerCase()) || f.displayName.toLowerCase().includes(inviteSearch.toLowerCase())
+  )
+  const others = (searchData?.users ?? []).filter((u: any) => !friends.some((f: any) => f.userId === u.userId))
+
   return (
-    <div className={cn("relative aspect-video rounded-xl overflow-hidden border bg-gradient-to-br from-emerald-950/50 to-emerald-800/20 flex items-center justify-center", p.isSpeaking && "speaking-ring border-brand-emerald")}>
-      {p.camOn ? (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><UserPlus className="size-5" /> Invite to room</DialogTitle>
+          <DialogDescription>Send a room invite — they'll get a notification with a join button.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="relative">
+            <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input value={inviteSearch} onChange={(e) => setInviteSearch(e.target.value)} placeholder="Search friends or anyone…" className="pl-9" autoFocus />
+          </div>
+          {/* Manual username entry */}
+          <div className="flex gap-2">
+            <div className="flex items-center relative flex-1">
+              <span className="absolute left-3 text-muted-foreground">@</span>
+              <Input value={inviteUsername} onChange={(e) => setInviteUsername(e.target.value)} placeholder="username" className="pl-7" />
+            </div>
+            <Button onClick={() => onInvite()} disabled={!inviteUsername.trim()}>Invite</Button>
+          </div>
+          {/* Friends list */}
+          {friends.length > 0 && (
+            <div>
+              <div className="text-xs text-muted-foreground mb-1.5">Your friends</div>
+              <div className="space-y-1 max-h-48 overflow-y-auto scroll-thin">
+                {friends.map((f: any) => (
+                  <button key={f.userId} onClick={() => onInvite(f.username)} className="w-full flex items-center gap-2 p-2 rounded-lg hover:bg-accent text-left">
+                    <Avatar name={f.displayName} src={f.avatarUrl} size={28} />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium truncate">{f.displayName}</div>
+                      <div className="text-xs text-muted-foreground">@{f.username}</div>
+                    </div>
+                    <UserPlus className="size-4 text-muted-foreground" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {/* Other users */}
+          {others.length > 0 && (
+            <div>
+              <div className="text-xs text-muted-foreground mb-1.5">{friends.length > 0 ? "Others" : "People"}</div>
+              <div className="space-y-1 max-h-40 overflow-y-auto scroll-thin">
+                {others.map((u: any) => (
+                  <button key={u.userId} onClick={() => onInvite(u.username)} className="w-full flex items-center gap-2 p-2 rounded-lg hover:bg-accent text-left">
+                    <Avatar name={u.displayName} src={u.avatarUrl} size={28} />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium truncate">{u.displayName}</div>
+                      <div className="text-xs text-muted-foreground">@{u.username} · {u.examGoal ?? "—"}</div>
+                    </div>
+                    <UserPlus className="size-4 text-muted-foreground" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {friends.length === 0 && others.length === 0 && inviteSearch && (
+            <p className="text-xs text-muted-foreground text-center py-3">No users found for "{inviteSearch}".</p>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function ParticipantTile({ p, isMe, isHost }: { p: Participant; isMe?: boolean; isHost?: boolean }) {
+  const sharing = (p as any).screenSharing === true
+  return (
+    <div className={cn("relative aspect-video rounded-xl overflow-hidden border bg-gradient-to-br from-emerald-950/50 to-emerald-800/20 flex items-center justify-center", p.isSpeaking && "speaking-ring border-brand-emerald", sharing && "ring-2 ring-sky-400")}>
+      {sharing ? (
+        <div className="absolute inset-0 bg-gradient-to-br from-sky-900/60 to-sky-700/30 flex flex-col items-center justify-center gap-2">
+          <MonitorUp className="size-8 text-sky-300" />
+          <span className="text-xs text-sky-100">screen sharing</span>
+        </div>
+      ) : p.camOn ? (
         <div className="absolute inset-0 bg-gradient-to-br from-emerald-600/30 to-amber-500/20 flex items-center justify-center">
           <Avatar name={p.displayName} src={p.avatarUrl} size={64} speaking={p.isSpeaking} />
           <span className="absolute top-2 left-2 text-[10px] bg-black/40 text-white px-1.5 py-0.5 rounded">camera on</span>

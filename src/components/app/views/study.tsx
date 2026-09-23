@@ -10,9 +10,12 @@ import { useRouter } from "@/lib/router"
 import { Play, Pause, Square, RotateCcw, Coffee, Timer as TimerIcon, Zap, Target, Flame, Sparkles, Headphones } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
+import { useConfetti } from "@/components/app/confetti"
+import { AmbientSounds } from "@/components/app/ambient-sounds"
 
 export function StudyView() {
   const { me } = useAuth()
+  const confetti = useConfetti()
   const { navigate } = useRouter()
   const qc = useQueryClient()
 
@@ -101,7 +104,12 @@ export function StudyView() {
         const res = await api.post<{ durationMin: number; xpEarned: number; streak: number; awardedBadges: any[] }>(`/study/sessions/${sessionIdRef.current}/stop`)
         const xp = res.xpEarned ?? 0
         toast.success(`Studied ${res.durationMin ?? 0}m · +${xp} XP${res.streak ? ` · 🔥 ${res.streak}d streak` : ""}`)
-        if (res.awardedBadges?.length) for (const b of res.awardedBadges) toast(`Badge: ${b.name}`, { description: b.description })
+        if (res.awardedBadges?.length) {
+          for (const b of res.awardedBadges) toast(`Badge earned: ${b.name}`, { description: b.description })
+          confetti.burst(120) // celebrate badge(s)
+        } else if ((res.durationMin ?? 0) >= 25) {
+          confetti.burst(60) // small celebration for a solid session
+        }
         qc.invalidateQueries({ queryKey: ["goals"] })
         qc.invalidateQueries({ queryKey: ["me"] })
       } catch (e: any) { toast.error(e.message) }
@@ -205,7 +213,14 @@ export function StudyView() {
             </p>
           </CardContent>
         </Card>
+
+        {/* Ambient focus sounds */}
+        <div className="mt-6">
+          <h3 className="text-sm font-semibold mb-2 flex items-center gap-2"><Headphones className="size-4 text-brand-emerald" /> Focus sounds</h3>
+          <AmbientSounds />
+        </div>
       </div>
+      {confetti.ConfettiLayer}
     </div>
   )
 }

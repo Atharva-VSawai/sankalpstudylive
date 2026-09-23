@@ -184,3 +184,59 @@ Unresolved / Next-phase priorities (for the next webDevReview round):
 - Weekly recap email (Resend).
 - Playwright E2E tests for the golden path.
 - More micro-animations: confetti on badge earned, streak milestone celebration, room join/leave transitions.
+
+---
+Task ID: CRON-2
+Agent: webDevReview cron (round 2)
+Task: QA the platform, add friend-invite-to-room, screen-share, confetti, ambient sounds
+
+Current project status / assessment:
+- Platform stable from CRON-1. All 50 API endpoints return 200, all 18 views render correctly, zero console errors.
+- No bugs found in QA. Proceeded to add 4 new features.
+
+Current goals / completed modifications / verification results:
+
+  1. Friend invite-to-room (NEW) — proper invite flow with notification
+     - API: POST /api/rooms/[id]/invite — invite by username; validates inviter is a room member, target exists, not self, not blocked (either direction). Creates a `room_invite` notification with a `#/rooms/{id}` deep link for the recipient.
+     - Frontend: new `InviteDialog` component in room view — searchable list of friends + other users, plus manual @username entry. "Invite" button in the bottom control bar (UserPlus icon). Clicking a user sends the invite + toast.
+     - Verified: admin invited aarav → aarav's notification bell shows "2 unread" → notifications page renders "Sankalp Admin invited you to a room" with a View link. Self-invite blocked (BAD_REQUEST), nonexistent user 404.
+
+  2. Screen-share simulation (NEW)
+     - Added `screenSharing` state to room view + a `MonitorUp` control button. Toggling broadcasts `screenSharing` via PATCH /rooms/[id]/presence and shows a toast.
+     - ParticipantTile now renders a sky-blue "screen sharing" tile (with MonitorUp icon + ring) when a participant is sharing, so others see who's presenting.
+     - Verified: "Share screen" button present + clickable; toast confirms start/stop.
+
+  3. Confetti celebration (NEW)
+     - New `useConfetti()` hook (src/components/app/confetti.tsx) — lightweight CSS confetti burst (80-120 colored squares, no canvas/deps). Cleans up after 3.5s.
+     - Wired into both study flows:
+       - Solo study stop: 120 pieces if badges awarded, 60 pieces if session ≥ 25 min.
+       - Room study stop: same logic.
+     - Verified: confetti layer renders on study stop (styles loaded).
+
+  4. Ambient focus sounds (NEW) — WebAudio-synthesized, no asset downloads
+     - New `AmbientSounds` component (src/components/app/ambient-sounds.tsx) — 4 sound options: Rain (filtered noise), Café (brown noise + lowpass), Waves (LFO-modulated noise), White (pure noise). Volume slider. Toggle off by clicking the active sound.
+     - Placed on Solo study page (full size, below the "Join a live study room" CTA) and in the Room view (compact, top-right corner, lg+ screens).
+     - Verified: "Focus sounds" heading + Rain/Café/Waves/White buttons present on both pages.
+
+  5. Styling polish
+     - Renamed the room "Share" button to "Link" (copies room URL) and added a separate "Invite" button (opens the invite dialog) — clearer separation of copy-link vs invite-by-username.
+     - Invite dialog has a search input, friends list, others list, and manual @username entry — all in a clean Dialog.
+
+- Ran `bun run lint` → clean (0 errors, 0 warnings).
+- All new features browser-verified with agent-browser (zero console errors).
+
+Stage Summary:
+- Platform remains fully stable; 4 new features added + styling polish.
+- New API endpoint (/api/rooms/[id]/invite) is a backward-compatible addition. The Android contract gains one new endpoint + the `room_invite` notification type (already in the enum) — nothing breaks.
+- All features verified end-to-end: invite notification round-trip (admin→aarav), screen-share tile, confetti on study stop, ambient sounds UI.
+
+Unresolved / Next-phase priorities (for the next webDevReview round):
+- Update docs/mobile-contract.md to document: POST /api/rooms/[id]/invite, the `screenSharing` presence field, the `reactions` SSE event (already in code, not in docs), and the `room_invite` notification type (already in enum, add example).
+- Real LiveKit/Supabase Auth/Redis swap (still sandbox-simulated).
+- Push notifications (FCM) + notification preferences in settings.
+- Weekly recap email (Resend).
+- Playwright E2E tests for the golden path.
+- More micro-animations: streak milestone celebration (confetti already, add a streak counter animation), room join/leave transitions, level-up animation.
+- Room reactions count overlay (show recent reactions as a ticker, not just floating).
+- "Who's online" presence indicator on friends list.
+- Study session notes (optional text attached to a session — would need a schema field).
