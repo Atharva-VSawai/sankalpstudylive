@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { useAuth } from "@/lib/auth-context"
 import { useRouter } from "@/lib/router"
 import { EXAM_META } from "@/components/app/brand"
-import { Save, LogOut, Palette, Globe, Target, Crown, Shield, Bell, AlertTriangle } from "lucide-react"
+import { Save, LogOut, Palette, Globe, Target, Crown, Shield, Bell, AlertTriangle, Download, FileJson } from "lucide-react"
 import { toast } from "sonner"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -126,6 +126,8 @@ export function SettingsView() {
         <Button variant="destructive" onClick={() => { logout(); navigate("/") }}><LogOut className="size-4" /> Log out</Button>
         <Button onClick={() => save.mutate()} disabled={save.isPending}><Save className="size-4" /> Save changes</Button>
       </div>
+
+      <DataExportCard />
 
       <DangerZoneCard />
     </div>
@@ -278,5 +280,77 @@ function DangerZoneCard() {
         </DialogContent>
       </Dialog>
     </>
+  )
+}
+
+function DataExportCard() {
+  const downloadJson = async () => {
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("sankalp_token") : null
+      const res = await fetch("/api/profile/export", {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+      if (!res.ok) throw new Error("Export failed")
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `sankalp-profile-${new Date().toISOString().slice(0, 10)}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      toast.success("Profile data downloaded")
+    } catch (e: any) {
+      toast.error(e.message || "Export failed")
+    }
+  }
+
+  const downloadCsv = async () => {
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("sankalp_token") : null
+      const res = await fetch("/api/study/export", {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+      if (!res.ok) throw new Error("Export failed")
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `sankalp-study-history-${new Date().toISOString().slice(0, 10)}.csv`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      toast.success("Study history downloaded")
+    } catch (e: any) {
+      toast.error(e.message || "Export failed")
+    }
+  }
+
+  return (
+    <Card>
+      <CardContent className="p-5">
+        <div className="flex items-start gap-3">
+          <span className="size-10 rounded-xl bg-brand-emerald/10 flex items-center justify-center shrink-0">
+            <Download className="size-5 text-brand-emerald" />
+          </span>
+          <div className="flex-1">
+            <h3 className="font-semibold text-sm">Data export</h3>
+            <p className="text-xs text-muted-foreground mt-0.5 mb-3">
+              Download your data. Full profile (JSON) includes everything: sessions, goals, badges, friendships, payments. Study history (CSV) is a spreadsheet of your sessions.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" onClick={downloadJson}>
+                <FileJson className="size-4" /> Full profile (JSON)
+              </Button>
+              <Button variant="outline" size="sm" onClick={downloadCsv}>
+                <Download className="size-4" /> Study history (CSV)
+              </Button>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   )
 }

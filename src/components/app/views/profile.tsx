@@ -20,12 +20,15 @@ export function ProfileView() {
 
   const { data: profile } = useQuery({ queryKey: ["profile", "me"], queryFn: () => api.get<any>("/profile") })
   const { data: sessions } = useQuery({ queryKey: ["study", "sessions"], queryFn: () => api.get<{ sessions: any[] }>("/study/sessions") })
+  const { data: allBadges } = useQuery({ queryKey: ["badges"], queryFn: () => api.get<{ badges: any[] }>("/study/badges") })
   const { data: ref } = useQuery({ queryKey: ["referrals"], queryFn: () => api.get<any>("/referrals") })
 
   const p = profile?.profile
   if (!p) return <div className="p-8 text-center text-muted-foreground">Loading…</div>
   const examMeta = p.examGoal ? EXAM_META[p.examGoal] : null
   const earned = p.badges ?? []
+  const earnedSlugs = new Set(earned.map((b: any) => b.slug))
+  const locked = (allBadges?.badges ?? []).filter((b: any) => !earnedSlugs.has(b.slug))
 
   // last 14 days study minutes
   const dayMap = new Map<string, number>()
@@ -93,9 +96,14 @@ export function ProfileView() {
         </CardContent>
       </Card>
 
-      {/* Badges showcase */}
+      {/* Badges showcase — earned + locked */}
       <Card>
-        <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Award className="size-4 text-amber-500" /> Badges ({earned.length})</CardTitle></CardHeader>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center justify-between">
+            <span className="flex items-center gap-2"><Award className="size-4 text-amber-500" /> Badges</span>
+            <span className="text-xs font-normal text-muted-foreground">{earned.length}/{(allBadges?.badges?.length ?? 0)} earned</span>
+          </CardTitle>
+        </CardHeader>
         <CardContent>
           <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
             {earned.map((b: any) => (
@@ -107,13 +115,26 @@ export function ProfileView() {
                 <div className="text-2xl group-hover:scale-110 transition-transform">{tierEmoji(b.tier)}</div>
                 <div className="text-[10px] font-semibold mt-1 leading-tight">{b.name}</div>
                 <div className="text-[8px] text-muted-foreground mt-0.5 capitalize">{b.tier}</div>
-                {/* hover tooltip */}
                 <div className="absolute z-10 bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-popover text-popover-foreground text-xs rounded-lg px-2 py-1 shadow-lg whitespace-nowrap border max-w-[160px] normal-case font-normal">
                   {b.description}
                 </div>
               </div>
             ))}
-            {earned.length === 0 && (
+            {locked.map((b: any) => (
+              <div
+                key={b.slug}
+                className="group relative rounded-lg border border-dashed p-3 text-center opacity-50 hover:opacity-80 transition-opacity cursor-default"
+                title={`Locked: ${b.description}`}
+              >
+                <div className="text-2xl grayscale">{tierEmoji(b.tier)}</div>
+                <div className="text-[10px] font-semibold mt-1 leading-tight text-muted-foreground">{b.name}</div>
+                <div className="text-[8px] text-muted-foreground/70 mt-0.5 capitalize">{b.tier}</div>
+                <div className="absolute z-10 bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-popover text-popover-foreground text-xs rounded-lg px-2 py-1 shadow-lg whitespace-nowrap border max-w-[160px] normal-case font-normal">
+                  🔒 {b.description}
+                </div>
+              </div>
+            ))}
+            {earned.length === 0 && locked.length === 0 && (
               <div className="col-span-full text-center py-6">
                 <Award className="size-8 mx-auto mb-2 opacity-30" />
                 <p className="text-sm text-muted-foreground">No badges yet. Study to earn your first!</p>

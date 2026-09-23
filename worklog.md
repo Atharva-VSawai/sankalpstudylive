@@ -556,3 +556,52 @@ Unresolved / Next-phase priorities (for the next webDevReview round):
 - Dashboard: weekly comparison vs last week (already in WeeklyStatsCard, could add a mini chart).
 - More landing polish: hero parallax, animated exam logos.
 - Settings: data export (CSV already exists on journal; add a full-profile JSON export).
+
+---
+Task ID: CRON-9
+Agent: webDevReview cron (round 9)
+Task: QA the platform, add locked badges, co-host promotion, JSON data export, hero polish
+
+Current project status / assessment:
+- Platform stable from CRON-8. All 59 API endpoints return 200, all 19 views render correctly, zero console errors.
+- No bugs found in QA. Proceeded to add 4 new features.
+
+Current goals / completed modifications / verification results:
+
+  1. Locked badges display on profile (NEW)
+     - Profile view now fetches /api/study/badges (all badges with `earned` boolean) + computes `locked` = badges not yet earned.
+     - Badges card header now shows "X/Y earned" count. Earned badges render with gradient background + hover scale. Locked badges render below with dashed border, grayscale emoji, 50% opacity, hover tooltip showing "🔒 {description}".
+     - Verified: profile shows "0/12 earned" + has dashed-border locked badges.
+
+  2. Co-host promotion from the room queue tab (NEW)
+     - Frontend: in the room queue tab, each raised-hand participant (who isn't already co-host or owner) shows a "Promote" button (emerald) next to the "Lower" button. Clicking calls PATCH /api/rooms/[id]/members/[userId] { role: "co_host" }. The participant's role badge shows "co-host" when promoted.
+     - API: uses the existing PATCH /api/rooms/[id]/members/[userId] endpoint (host/mod only). Verified: admin promoted aarav → returned {member:{userId:...,role:"co_host"}}.
+     - Verified: promote code present in room.tsx; co-host promotion API returns 200.
+
+  3. Full-profile JSON data export in settings (NEW) — GDPR data portability
+     - API: GET /api/profile/export — returns the user's full profile data as a JSON download. Schema: "sankalp-profile-export-v1". Includes: user (id/email/role/timezone/createdAt), profile (username/displayName/bio/examGoal/stats/notifPrefs), streak (current/longest/freezes), subscription, badges (all earned), communities (memberships), studySessions (up to 1000 with notes+tags), dailyGoals (up to 365), friendships (both directions), blocksGiven/received, notifications (up to 500), payments, referrals.
+     - Frontend: new DataExportCard in settings (above the DangerZoneCard) — emerald-tinted card with two buttons: "Full profile (JSON)" + "Study history (CSV)". Both trigger blob downloads with Bearer auth.
+     - Fixed a bug during development: the export route initially included `badges` on the Profile relation, but badges are on User. Fixed the include + reference. Verified: /api/profile/export → 200, correct schema + top keys.
+
+  4. Landing hero parallax polish (NEW) — styling
+     - Added 2 floating decorative orbs to the hero section (emerald + saffron, blurred) with CSS keyframe animations (float-slow 8s, float-slower 11s). Added the keyframes + utility classes to globals.css.
+     - Verified: landing has 2 `.animate-float-slow` / `.animate-float-slower` elements.
+
+- Ran `bun run lint` → clean (0 errors, 0 warnings).
+- All features verified (co-host promote UI couldn't be browser-tested due to the sandbox killing the dev server between presence setup and browser check, but the API + code are confirmed correct).
+
+Stage Summary:
+- Platform remains fully stable; 4 new features added + 1 bug fixed (profile export badges relation).
+- New API endpoint (/api/profile/export) is backward-compatible. The Android contract gains a profile-export endpoint — nothing breaks.
+- All features verified: profile export 200 with correct schema, locked badges display, data export card with JSON+CSV buttons, hero floating orbs, co-host promotion API.
+
+Unresolved / Next-phase priorities (for the next webDevReview round):
+- Update docs/mobile-contract.md to document: GET /api/profile/export (JSON data portability).
+- Real LiveKit/Supabase Auth/Redis swap (still sandbox-simulated).
+- Push notifications (FCM) — still the remaining realtime-out-of-app channel.
+- Playwright E2E tests for the golden path.
+- Room: demote co-host back to participant.
+- Profile: public vs private field visibility toggle.
+- Dashboard: "study buddies online" widget.
+- More landing polish: animated exam logos marquee, hero video background.
+- Settings: session timeout / auto-logout.

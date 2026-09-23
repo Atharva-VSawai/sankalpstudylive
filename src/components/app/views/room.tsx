@@ -224,6 +224,15 @@ export function RoomView({ id }: { id: string }) {
     }
   }
 
+  const promoteCoHost = async (targetUserId: string) => {
+    try {
+      await api.patch(`/rooms/${id}/members/${targetUserId}`, { role: "co_host" })
+      toast.success("Promoted to co-host")
+    } catch (e: any) {
+      toast.error(e.message || "Failed to promote")
+    }
+  }
+
   const sendMessage = async () => {
     const text = chatText.trim()
     if (!text) return
@@ -500,19 +509,31 @@ export function RoomView({ id }: { id: string }) {
                         <div className="text-sm font-medium truncate">
                           {p.displayName}
                           {i === 0 && <span className="ml-1.5 text-[10px] text-amber-600 dark:text-amber-400 font-semibold">NEXT</span>}
+                          {p.role === "co_host" && <span className="ml-1.5 text-[10px] text-brand-emerald font-semibold">co-host</span>}
                         </div>
                         <div className="text-[10px] text-muted-foreground">
                           raised {p.handRaisedAt ? new Date(p.handRaisedAt).toLocaleTimeString("en", { hour: "numeric", minute: "2-digit" }) : ""}
                         </div>
                       </div>
                       {isHost && (
-                        <button
-                          onClick={() => lowerHand(p.userId)}
-                          className="text-[10px] px-2 py-1 rounded-md bg-amber-500 hover:bg-amber-600 text-white"
-                          title="Lower hand"
-                        >
-                          Lower
-                        </button>
+                        <div className="flex gap-1">
+                          {p.role !== "co_host" && p.userId !== room.ownerId && (
+                            <button
+                              onClick={() => promoteCoHost(p.userId)}
+                              className="text-[10px] px-2 py-1 rounded-md bg-brand-emerald hover:opacity-90 text-white"
+                              title="Promote to co-host"
+                            >
+                              Promote
+                            </button>
+                          )}
+                          <button
+                            onClick={() => lowerHand(p.userId)}
+                            className="text-[10px] px-2 py-1 rounded-md bg-amber-500 hover:bg-amber-600 text-white"
+                            title="Lower hand"
+                          >
+                            Lower
+                          </button>
+                        </div>
                       )}
                     </div>
                   ))}

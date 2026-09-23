@@ -32,7 +32,10 @@ export function LandingView() {
     <div>
       {/* Hero */}
       <section className="relative overflow-hidden hero-glow">
-        <div className="mx-auto max-w-7xl px-4 py-20 md:py-28">
+        {/* Floating decorative orbs */}
+        <div className="absolute top-20 left-10 size-32 rounded-full bg-brand-emerald/10 blur-3xl animate-float-slow" />
+        <div className="absolute top-40 right-20 size-40 rounded-full bg-brand-saffron/10 blur-3xl animate-float-slower" />
+        <div className="mx-auto max-w-7xl px-4 py-20 md:py-28 relative">
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             <div className="fade-in">
               <span className="inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1 text-xs font-medium text-muted-foreground">
