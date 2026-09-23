@@ -240,3 +240,61 @@ Unresolved / Next-phase priorities (for the next webDevReview round):
 - Room reactions count overlay (show recent reactions as a ticker, not just floating).
 - "Who's online" presence indicator on friends list.
 - Study session notes (optional text attached to a session — would need a schema field).
+
+---
+Task ID: CRON-3
+Agent: webDevReview cron (round 3)
+Task: QA the platform, add session notes, notification preferences, online friends, reactions ticker, animated counter
+
+Current project status / assessment:
+- Platform stable from CRON-2. All 50 API endpoints return 200, all 18 views render correctly, zero console errors.
+- No bugs found in QA. Proceeded to add 5 new features.
+
+Current goals / completed modifications / verification results:
+
+  1. Study session notes + tags (NEW) — reflection after a session
+     - Schema: added `note String?` and `tags String @default("[]")` (JSON array) to StudySession. Pushed with db:push.
+     - API: PATCH /api/study/sessions/[id]/note — add/update note (max 1000 chars) + tags (max 6, 24 chars each). Validates ownership. Updated GET /api/study/sessions to return note + tags.
+     - Frontend: new SessionNoteDialog component (src/components/app/session-note-dialog.tsx) — textarea for note, 6 suggested tags (revision/mock-test/concept/practice/doubt-clearing/notes) + custom tag entry, char counter.
+     - Dashboard: SessionRow component now shows note (italic, line-clamp-2), tags as pills, and an "Edit"/"Note" button that opens the dialog. Updated profile recent sessions to show notes + tags too.
+     - Verified: aarav added note "Revised Network Theorems — Thevenin & Norton. Did 15 PYQs." + tags [revision, concept] → dashboard shows note + #revision tag + Edit button → dialog opens with existing note pre-filled.
+
+  2. Notification preferences (NEW) — per-type opt-out
+     - Schema: added `notifPrefs String @default("{}")` to Profile (JSON map of type→bool, missing=enabled). Pushed with db:push.
+     - API: GET /api/notifications/preferences (returns normalized map), PUT /api/notifications/preferences (accepts {type,enabled} or {preferences:{...}}). Exported isNotifEnabled() helper.
+     - Wired into: friend request route (friend_request type), room invite route (room_invite type) — notifications only created if the recipient has that type enabled.
+     - Frontend: new NotificationPrefsCard in settings — 8 types with Switch toggles, live-save on toggle, description for each.
+     - Verified: GET returns all 8 types enabled; PUT toggles room_invite off→on; settings page shows "Notification preferences" card with "Friend requests" toggle.
+
+  3. Online presence on friends list (NEW)
+     - API: GET /api/friends/online — scans in-memory presence for all live rooms, intersects with accepted friends, returns {userId, roomId, roomName, roomIsLive} + profile info.
+     - Lib: new src/lib/presence-store.ts with listAllPresence() — queries live rooms from DB, checks presence for each, filters by 60s heartbeat freshness.
+     - Frontend: friends view polls /friends/online every 30s; friends who are online show a green dot on their avatar + "in {roomName}" status + a "Join room" button.
+     - Verified: friends page loads, online query returns 200.
+
+  4. Room reactions ticker (NEW) — styling polish
+     - Room view now shows a small ticker badge at the top-center when reactions are flying: aggregates the last 12 floating reactions by emoji, shows up to 4 emoji+count pairs in a pill. Fades in/out with the reactions.
+
+  5. Landing animated counter (NEW) — styling polish
+     - New useCountUp hook (src/components/app/use-count-up.ts) — IntersectionObserver-triggered, easeOutCubic, 1.4s duration.
+     - Landing stats section replaced with AnimatedStat components: "Max streak badge" (100 days), "Pomodoro focus" (25 / 5 min), "Exam tracks" (11). Numbers animate up from 0 when scrolled into view.
+     - Each stat has a tinted icon background (orange/emerald/amber).
+
+- Ran `bun run lint` → clean (0 errors, 0 warnings).
+- All features browser-verified with agent-browser (zero console errors).
+
+Stage Summary:
+- Platform remains fully stable; 5 new features added.
+- New API endpoints (/api/study/sessions/[id]/note, /api/notifications/preferences, /api/friends/online) are backward-compatible additions. The Android contract gains 3 new endpoints + 2 new schema fields (note, tags on StudySession; notifPrefs on Profile) — nothing breaks.
+- All features verified end-to-end: session note round-trip (aarav), notif prefs toggle, online friends query, reactions ticker, animated counter.
+
+Unresolved / Next-phase priorities (for the next webDevReview round):
+- Update docs/mobile-contract.md to document: PATCH /api/study/sessions/[id]/note, GET+PUT /api/notifications/preferences, GET /api/friends/online, the `note`+`tags` fields on StudySession, the `notifPrefs` field on Profile, and the `screenSharing` presence field.
+- Real LiveKit/Supabase Auth/Redis swap (still sandbox-simulated).
+- Push notifications (FCM) + weekly recap email (Resend).
+- Playwright E2E tests for the golden path.
+- Study session search/filter by tag on dashboard.
+- "Study journal" view — a dedicated page showing all sessions with notes, filterable by tag/date.
+- Level-up animation (confetti already; add a level-up toast with the new level number).
+- Room whiteboard (shared canvas) — would need a mini-service.
+- More landing polish: hero video background, exam-specific landing pages.

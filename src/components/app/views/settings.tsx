@@ -11,8 +11,9 @@ import { Textarea } from "@/components/ui/textarea"
 import { useAuth } from "@/lib/auth-context"
 import { useRouter } from "@/lib/router"
 import { EXAM_META } from "@/components/app/brand"
-import { Save, LogOut, Palette, Globe, Target, Crown, Shield } from "lucide-react"
+import { Save, LogOut, Palette, Globe, Target, Crown, Shield, Bell } from "lucide-react"
 import { toast } from "sonner"
+import { Switch } from "@/components/ui/switch"
 
 const TIMEZONES = [
   "Asia/Kolkata", "Asia/Calcutta", "Asia/Dubai", "Asia/Singapore", "Asia/Tokyo",
@@ -115,10 +116,67 @@ export function SettingsView() {
         </CardContent>
       </Card>
 
+      <NotificationPrefsCard />
+
       <div className="flex justify-between items-center">
         <Button variant="destructive" onClick={() => { logout(); navigate("/") }}><LogOut className="size-4" /> Log out</Button>
         <Button onClick={() => save.mutate()} disabled={save.isPending}><Save className="size-4" /> Save changes</Button>
       </div>
     </div>
+  )
+}
+
+const NOTIF_TYPES: { id: string; label: string; desc: string }[] = [
+  { id: "friend_request", label: "Friend requests", desc: "When someone sends you a friend request" },
+  { id: "friend_accept", label: "Friend accepts", desc: "When your friend request is accepted" },
+  { id: "room_invite", label: "Room invites", desc: "When a friend invites you to a study room" },
+  { id: "badge_earned", label: "Badge earned", desc: "When you unlock a new badge" },
+  { id: "goal_completed", label: "Daily goal", desc: "When you complete your daily study goal" },
+  { id: "streak_milestone", label: "Streak milestones", desc: "Weekly streak progress updates" },
+  { id: "report_update", label: "Report updates", desc: "When a report you filed is resolved (moderators only)" },
+  { id: "system", label: "System", desc: "Important product announcements" },
+]
+
+function NotificationPrefsCard() {
+  const qc = useQueryClient()
+  const { data, isLoading } = useQuery({
+    queryKey: ["notif-prefs"],
+    queryFn: () => api.get<{ preferences: Record<string, boolean> }>("/notifications/preferences"),
+  })
+  const prefs = data?.preferences ?? {}
+
+  const toggle = useMutation({
+    mutationFn: ({ type, enabled }: { type: string; enabled: boolean }) =>
+      api.put("/notifications/preferences", { type, enabled }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["notif-prefs"] })
+      qc.invalidateQueries({ queryKey: ["notifications"] })
+    },
+  })
+
+  return (
+    <Card>
+      <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Bell className="size-4" /> Notification preferences</CardTitle></CardHeader>
+      <CardContent className="space-y-1">
+        {isLoading ? (
+          <div className="py-6 text-center text-sm text-muted-foreground">Loading…</div>
+        ) : (
+          NOTIF_TYPES.map((t) => (
+            <div key={t.id} className="flex items-center justify-between py-2 border-b last:border-0">
+              <div className="min-w-0 pr-3">
+                <div className="text-sm font-medium">{t.label}</div>
+                <div className="text-xs text-muted-foreground">{t.desc}</div>
+              </div>
+              <Switch
+                checked={prefs[t.id] !== false}
+                onCheckedChange={(v) => toggle.mutate({ type: t.id, enabled: v })}
+                disabled={toggle.isPending}
+              />
+            </div>
+          ))
+        )}
+        <p className="text-[11px] text-muted-foreground pt-2">Changes apply to future notifications. Existing ones are kept.</p>
+      </CardContent>
+    </Card>
   )
 }

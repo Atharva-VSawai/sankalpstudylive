@@ -282,6 +282,22 @@ export function RoomView({ id }: { id: string }) {
         </div>
       </div>
 
+      {/* Reactions ticker — recent reactions count + emoji */}
+      {floatingReactions.length > 0 && (
+        <div className="absolute top-14 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 bg-card/90 backdrop-blur border rounded-full px-3 py-1 shadow-sm fade-in">
+          {Object.entries(
+            floatingReactions.reduce((acc, r) => {
+              acc[r.emoji] = (acc[r.emoji] ?? 0) + 1
+              return acc
+            }, {} as Record<string, number>)
+          ).slice(-4).map(([emoji, n]) => (
+            <span key={emoji} className="text-sm inline-flex items-center gap-0.5">
+              {emoji}<span className="text-[10px] text-muted-foreground font-semibold">{n}</span>
+            </span>
+          ))}
+        </div>
+      )}
+
       {/* Body: stage + side panel */}
       <div className="flex-1 flex min-h-0">
         {/* Stage */}

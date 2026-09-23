@@ -10,6 +10,9 @@ import { Link, useRouter } from "@/lib/router"
 import { useAuth } from "@/lib/auth-context"
 import { ActivityHeatmap } from "@/components/app/activity-heatmap"
 import { StreakFreezeCard } from "@/components/app/streak-freeze-card"
+import { SessionNoteDialog } from "@/components/app/session-note-dialog"
+import { useState } from "react"
+import { NotebookPen, Clock as ClockIcon } from "lucide-react"
 import { Flame, Target, Sparkles, Trophy, Play, Video, Users, Clock, ArrowRight, Zap, Award, BookOpen, TrendingUp } from "lucide-react"
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell } from "recharts"
 
@@ -167,17 +170,7 @@ export function DashboardView() {
             ) : (
               <div className="space-y-1">
                 {(sessions?.sessions ?? []).slice(0, 8).map((s: any) => (
-                  <div key={s.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-accent">
-                    <span className="size-9 rounded-lg bg-brand-emerald/10 flex items-center justify-center text-brand-emerald"><BookOpen className="size-4" /></span>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium truncate">{s.room?.name ?? "Solo focus"}{s.mode === "pomodoro" && " · Pomodoro"}</div>
-                      <div className="text-xs text-muted-foreground">{timeAgo(s.startedAt)} · {s.community?.name ?? "Open"}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-sm font-semibold">{formatMinutes(s.durationMin)}</div>
-                      <div className="text-xs text-brand-emerald">+{s.xpEarned} XP</div>
-                    </div>
-                  </div>
+                  <SessionRow key={s.id} s={s} />
                 ))}
               </div>
             )}
@@ -244,4 +237,45 @@ function greeting() {
 
 function tierEmoji(t: string) {
   return { bronze: "🥉", silver: "🥈", gold: "🥇", platinum: "💎" }[t] || "🏅"
+}
+
+function SessionRow({ s }: { s: any }) {
+  const [noteOpen, setNoteOpen] = useState(false)
+  return (
+    <>
+      <div className="flex items-start gap-3 p-2 rounded-lg hover:bg-accent">
+        <span className="size-9 rounded-lg bg-brand-emerald/10 flex items-center justify-center text-brand-emerald shrink-0"><BookOpen className="size-4" /></span>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-medium truncate">{s.room?.name ?? "Solo focus"}{s.mode === "pomodoro" && " · Pomodoro"}</div>
+          <div className="text-xs text-muted-foreground">{timeAgo(s.startedAt)} · {s.community?.name ?? "Open"}</div>
+          {s.note && <div className="text-xs mt-1 line-clamp-2 italic text-muted-foreground/80">"{s.note}"</div>}
+          {s.tags?.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1">
+              {s.tags.map((t: string) => (
+                <span key={t} className="text-[9px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">#{t}</span>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <div className="text-sm font-semibold">{formatMinutes(s.durationMin)}</div>
+          <div className="text-xs text-brand-emerald">+{s.xpEarned} XP</div>
+          <button
+            onClick={() => setNoteOpen(true)}
+            className="text-[10px] text-muted-foreground hover:text-brand-emerald inline-flex items-center gap-0.5 mt-0.5"
+            title={s.note ? "Edit note" : "Add note"}
+          >
+            <NotebookPen className="size-3" /> {s.note ? "Edit" : "Note"}
+          </button>
+        </div>
+      </div>
+      <SessionNoteDialog
+        sessionId={s.id}
+        open={noteOpen}
+        onOpenChange={setNoteOpen}
+        existingNote={s.note}
+        existingTags={s.tags}
+      />
+    </>
+  )
 }

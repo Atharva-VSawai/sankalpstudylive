@@ -115,13 +115,21 @@ export function ProfileView() {
           {(sessions?.sessions ?? []).length === 0 ? <p className="text-sm text-muted-foreground text-center py-4">No sessions yet.</p> : (
             <div className="space-y-1">
               {(sessions?.sessions ?? []).slice(0, 6).map((s: any) => (
-                <div key={s.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-accent">
-                  <span className="size-9 rounded-lg bg-brand-emerald/10 flex items-center justify-center text-brand-emerald"><BookOpen className="size-4" /></span>
+                <div key={s.id} className="flex items-start gap-3 p-2 rounded-lg hover:bg-accent">
+                  <span className="size-9 rounded-lg bg-brand-emerald/10 flex items-center justify-center text-brand-emerald shrink-0"><BookOpen className="size-4" /></span>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium truncate">{s.room?.name ?? "Solo focus"}{s.mode === "pomodoro" && " · Pomodoro"}</div>
                     <div className="text-xs text-muted-foreground">{timeAgo(s.startedAt)} · {s.community?.name ?? "Open"}</div>
+                    {s.note && <div className="text-xs mt-1 line-clamp-2 italic text-muted-foreground/80">"{s.note}"</div>}
+                    {s.tags?.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {s.tags.map((t: string) => (
+                          <span key={t} className="text-[9px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">#{t}</span>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  <div className="text-right">
+                  <div className="text-right shrink-0">
                     <div className="text-sm font-semibold">{formatMinutes(s.durationMin)}</div>
                     <div className="text-xs text-brand-emerald">+{s.xpEarned} XP</div>
                   </div>

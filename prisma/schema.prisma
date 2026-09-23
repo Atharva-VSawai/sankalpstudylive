@@ -75,6 +75,10 @@ model Profile {
   totalMinutes    Int      @default(0)
   totalXp         Int      @default(0)
   level           Int      @default(1)
+  // Notification preferences — JSON map of type -> bool. Missing = enabled.
+  // Types: friend_request, friend_accept, badge_earned, goal_completed,
+  //        streak_milestone, room_invite, report_update, system
+  notifPrefs      String   @default("{}")
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -207,6 +211,8 @@ model StudySession {
   xpEarned    Int      @default(0)
   mode        String   @default("focus") // focus | pomodoro | break
   isVerified  Boolean  @default(true) // server-verified
+  note        String?  // optional user-written reflection after the session
+  tags        String   @default("[]") // JSON array of user tags e.g. ["revision","mock-test"]
   createdAt   DateTime @default(now())
 
   user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)

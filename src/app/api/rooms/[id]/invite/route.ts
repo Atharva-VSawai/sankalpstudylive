@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server"
 import { db } from "@/lib/db"
 import { ok, unauthorized, notFound, badRequest, forbidden, getAuth } from "@/lib/api"
+import { isNotifEnabled } from "@/app/api/notifications/preferences/route"
 
 // POST /api/rooms/[id]/invite
 // Invite a friend (by username) to a room. Creates a room_invite notification
@@ -36,15 +37,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const inviter = await db.profile.findUnique({ where: { userId: ctx.userId } })
 
-  await db.notification.create({
-    data: {
-      userId: target.userId,
-      type: "room_invite",
-      title: `${inviter?.displayName ?? "Someone"} invited you to a room`,
-      body: room.name,
-      link: `#/rooms/${id}`,
-    },
-  })
+  if (await isNotifEnabled(target.userId, "room_invite")) {
+    await db.notification.create({
+      data: {
+        userId: target.userId,
+        type: "room_invite",
+        title: `${inviter?.displayName ?? "Someone"} invited you to a room`,
+        body: room.name,
+        link: `#/rooms/${id}`,
+      },
+    })
+  }
 
   return ok({ invited: true, to: { userId: target.userId, username: target.username } })
 }

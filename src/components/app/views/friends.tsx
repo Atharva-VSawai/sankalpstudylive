@@ -47,6 +47,13 @@ export function FriendsView() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["friends"] }); toast.success("User blocked") },
   })
 
+  const { data: onlineData } = useQuery({
+    queryKey: ["friends", "online"],
+    queryFn: () => api.get<{ online: any[] }>("/friends/online"),
+    refetchInterval: 30000,
+  })
+  const onlineMap = new Map((onlineData?.online ?? []).map((o: any) => [o.userId, o]))
+
   const friends = data?.friends ?? []
   const incoming = data?.incoming ?? []
   const outgoing = data?.outgoing ?? []
@@ -105,18 +112,36 @@ export function FriendsView() {
               <UserPlus className="size-8 mx-auto mb-2 opacity-30" />
               No friends yet. Search above to add study buddies.
             </CardContent></Card>
-          ) : friends.map((f: any) => (
+          ) : friends.map((f: any) => {
+            const online = onlineMap.get(f.userId)
+            return (
             <Card key={f.userId}><CardContent className="p-3 flex items-center gap-3">
-              <Link to={`/profile/${f.username}`}><Avatar name={f.displayName} src={f.avatarUrl} size={40} /></Link>
+              <div className="relative">
+                <Link to={`/profile/${f.username}`}><Avatar name={f.displayName} src={f.avatarUrl} size={40} /></Link>
+                {online && (
+                  <span className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full bg-brand-emerald border-2 border-background" title="Online — studying now" />
+                )}
+              </div>
               <div className="flex-1 min-w-0">
                 <Link to={`/profile/${f.username}`} className="font-medium hover:underline truncate block">{f.displayName}</Link>
-                <div className="text-xs text-muted-foreground">@{f.username} · {f.examGoal ?? "—"} · Lvl {f.level}</div>
+                <div className="text-xs text-muted-foreground">
+                  {online ? (
+                    <span className="text-brand-emerald inline-flex items-center gap-1">
+                      <span className="size-1.5 rounded-full bg-brand-emerald animate-pulse" /> in {online.roomName ?? "a room"}
+                    </span>
+                  ) : (
+                    <>@{f.username} · {f.examGoal ?? "—"} · Lvl {f.level}</>
+                  )}
+                </div>
               </div>
-              <Link to={`/rooms`}><Button size="sm" variant="ghost"><MessageSquare className="size-4" /></Button></Link>
+              {online && (
+                <Link to={`/rooms/${online.roomId}`}><Button size="sm" variant="outline" className="text-brand-emerald border-brand-emerald/40 hover:bg-brand-emerald/10">Join room</Button></Link>
+              )}
               <Button size="sm" variant="ghost" onClick={() => blockMut.mutate(f.username)}><Ban className="size-4 text-destructive" /></Button>
               <Button size="sm" variant="outline" onClick={() => unfriendMut.mutate(f.userId)}>Unfriend</Button>
             </CardContent></Card>
-          ))}
+            )
+          })}
         </TabsContent>
 
         <TabsContent value="incoming" className="space-y-2">

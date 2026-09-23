@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Avatar, LiveDot, Logo, EXAM_META, formatMinutes } from "@/components/app/brand"
 import { ArrowRight, Users, Video, Flame, Trophy, BookOpen, Clock, Sparkles, ChevronRight, Timer, ShieldCheck, Zap } from "lucide-react"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+import { useCountUp } from "@/components/app/use-count-up"
 
 export function LandingView() {
   const { navigate } = useRouter()
@@ -191,20 +192,9 @@ export function LandingView() {
       {/* Study statistics — truthful, demo-account only */}
       <section className="mx-auto max-w-7xl px-4 py-14">
         <div className="grid sm:grid-cols-3 gap-4">
-          {[
-            { icon: <Flame className="size-5 text-orange-500" />, label: "Max streak", value: "100 days", sub: "Badge: Century of Focus" },
-            { icon: <Clock className="size-5 text-brand-emerald" />, label: "Focus sessions", value: "Pomodoro", sub: "25 / 5 / 15 minute cycles" },
-            { icon: <BookOpen className="size-5 text-accent-foreground" />, label: "Exam goals", value: `${communities.length || 11} tracks`, sub: "GATE, JEE, NEET, UPSC & more" },
-          ].map((s, i) => (
-            <Card key={i}><CardContent className="p-5 flex items-center gap-4">
-              <span className="size-11 rounded-xl bg-accent/40 flex items-center justify-center">{s.icon}</span>
-              <div>
-                <div className="text-xs text-muted-foreground">{s.label}</div>
-                <div className="text-xl font-bold">{s.value}</div>
-                <div className="text-xs text-muted-foreground">{s.sub}</div>
-              </div>
-            </CardContent></Card>
-          ))}
+          <AnimatedStat icon={<Flame className="size-5 text-orange-500" />} label="Max streak badge" end={100} suffix=" days" sub="Badge: Century of Focus" tint="bg-orange-50 dark:bg-orange-950/30" />
+          <AnimatedStat icon={<Clock className="size-5 text-brand-emerald" />} label="Pomodoro focus" end={25} suffix=" / 5 min" sub="Focus / break cycles" tint="bg-emerald-50 dark:bg-emerald-950/30" />
+          <AnimatedStat icon={<BookOpen className="size-5 text-accent-foreground" />} label="Exam tracks" end={communities.length || 11} suffix="" sub="GATE, JEE, NEET, UPSC & more" tint="bg-amber-50 dark:bg-amber-950/30" />
         </div>
         <p className="mt-4 text-xs text-muted-foreground text-center">Some numbers above reflect demo accounts seeded for this preview, not real user statistics.</p>
       </section>
@@ -302,5 +292,21 @@ export function LandingView() {
         </Card>
       </section>
     </div>
+  )
+}
+
+function AnimatedStat({ icon, label, end, suffix, sub, tint }: { icon: React.ReactNode; label: string; end: number; suffix: string; sub: string; tint: string }) {
+  const { ref, value } = useCountUp(end)
+  return (
+    <Card><CardContent className="p-5 flex items-center gap-4">
+      <span className={`size-11 rounded-xl flex items-center justify-center ${tint}`}>{icon}</span>
+      <div>
+        <div className="text-xs text-muted-foreground">{label}</div>
+        <div className="text-xl font-bold tabular-nums">
+          <span ref={ref}>{value}</span>{suffix}
+        </div>
+        <div className="text-xs text-muted-foreground">{sub}</div>
+      </div>
+    </CardContent></Card>
   )
 }

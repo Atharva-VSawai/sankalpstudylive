@@ -82,10 +82,16 @@ export async function GET(req: NextRequest) {
       durationMin: s.durationMin,
       xpEarned: s.xpEarned,
       mode: s.mode,
+      note: s.note,
+      tags: safeParse(s.tags),
       room: s.room,
       community: s.community,
     })),
   })
+}
+
+function safeParse(s: string): string[] {
+  try { const v = JSON.parse(s); return Array.isArray(v) ? v : [] } catch { return [] }
 }
 
 // Internal helper (also used by stop route) — closes a session, computes duration server-side.

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server"
 import { db } from "@/lib/db"
 import { ok, unauthorized, badRequest, notFound, getAuth } from "@/lib/api"
+import { isNotifEnabled } from "@/app/api/notifications/preferences/route"
 
 // GET /api/friends — list friends + pending requests
 export async function GET(req: NextRequest) {
@@ -67,14 +68,16 @@ export async function POST(req: NextRequest) {
   } else {
     await db.friendship.create({ data: { fromUserId: ctx.userId, toUserId: target.userId, status: "pending" } })
   }
-  await db.notification.create({
-    data: {
-      userId: target.userId,
-      type: "friend_request",
-      title: "New friend request",
-      body: `You have a new friend request`,
-      link: "#/friends",
-    },
-  })
+  if (await isNotifEnabled(target.userId, "friend_request")) {
+    await db.notification.create({
+      data: {
+        userId: target.userId,
+        type: "friend_request",
+        title: "New friend request",
+        body: `You have a new friend request`,
+        link: "#/friends",
+      },
+    })
+  }
   return ok({ requested: true })
 }
