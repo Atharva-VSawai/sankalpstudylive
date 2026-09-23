@@ -117,7 +117,7 @@ export function LandingView() {
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between mb-2">
                         <LiveDot label="LIVE" />
-                        <span className="text-xs text-muted-foreground inline-flex items-center gap-1"><Users className="size-3" /> {r.participantCount}/{r.maxParticipants}</span>
+                        <span className="text-xs text-muted-foreground inline-flex items-center gap-1"><Users className="size-3" /> {r.participantCount} studying</span>
                       </div>
                       <h3 className="font-semibold truncate">{r.name}</h3>
                       <p className="text-xs text-muted-foreground truncate">{r.description || "Focus room"}</p>

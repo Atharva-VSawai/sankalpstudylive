@@ -45,7 +45,9 @@ export function AppShell() {
 
   const requiresAuth = AUTHED_PREFIXES.some((p) => path === p || path.startsWith(p + "/") || path.startsWith(p))
   const isAdminArea = path === "/admin" || path.startsWith("/admin/")
-  const isRoom = path === "/rooms" || path.startsWith("/rooms/")
+  // Only individual room views (e.g. /rooms/abc123) are full-screen (no chrome).
+  // The /rooms listing page uses the normal authenticated layout with sidebar.
+  const isIndividualRoom = path.startsWith("/rooms/") && segments.length > 1
 
   // Redirect rules
   useEffect(() => {
@@ -84,8 +86,8 @@ export function AppShell() {
     )
   }
 
-  // Room view is full-screen (no chrome)
-  if (isRoom && me) {
+  // Individual room view is full-screen (no chrome) — only /rooms/[id], not /rooms listing
+  if (isIndividualRoom && me) {
     return (
       <div className="min-h-screen flex flex-col bg-background">
         {view}

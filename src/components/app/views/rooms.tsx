@@ -63,9 +63,9 @@ export function RoomsView() {
               <Card className="hover:shadow-md transition-all hover:-translate-y-0.5 h-full">
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between mb-2">
-                    {r.isLive ? <LiveDot /> : <span className="text-xs text-muted-foreground">Idle</span>}
+                    {r.isLive ? <LiveDot /> : <span className="text-xs text-muted-foreground">Available</span>}
                     <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
-                      <Users className="size-3" /> {r.participantCount}/{r.maxParticipants}
+                      <Users className="size-3" /> {r.participantCount} {r.participantCount === 1 ? "student" : "students"} studying
                       {r.isPrivate && <Lock className="size-3 ml-1" />}
                     </span>
                   </div>

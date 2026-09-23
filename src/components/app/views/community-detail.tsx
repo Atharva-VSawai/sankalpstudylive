@@ -117,7 +117,7 @@ function RoomCard({ room }: { room: any }) {
         <CardContent className="p-4">
           <div className="flex items-center justify-between mb-2">
             {room.isLive ? <LiveDot /> : <span className="text-xs text-muted-foreground">Idle</span>}
-            <span className="text-xs text-muted-foreground inline-flex items-center gap-1"><Users className="size-3" /> {room.participantCount}/{room.maxParticipants}</span>
+            <span className="text-xs text-muted-foreground inline-flex items-center gap-1"><Users className="size-3" /> {room.participantCount} {room.participantCount === 1 ? "student" : "students"} studying</span>
           </div>
           <h3 className="font-semibold truncate">{room.name}</h3>
           <p className="text-xs text-muted-foreground truncate">{room.description || "Focus room"}</p>

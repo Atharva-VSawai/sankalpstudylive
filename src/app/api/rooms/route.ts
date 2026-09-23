@@ -12,7 +12,9 @@ export async function GET(req: NextRequest) {
   const page = Math.max(1, Number(url.searchParams.get("page") || 1))
   const limit = Math.min(40, Math.max(1, Number(url.searchParams.get("limit") || 20)))
 
-  const where: any = { isListed: true }
+  // Public discovery: only show DEFAULT (official) and CUSTOM (user-created) rooms.
+  // TEST rooms are excluded from public discovery.
+  const where: any = { isListed: true, roomType: { not: "TEST" } }
   if (communityId) where.communityId = communityId
   if (onlyLive) where.isLive = true
   if (q) where.name = { contains: q }
@@ -36,6 +38,7 @@ export async function GET(req: NextRequest) {
       isLive: r.isLive,
       isPrivate: r.isPrivate,
       isDefaultRoom: r.isDefaultRoom,
+      roomType: r.roomType,
       focusMode: r.focusMode,
       participantCount: r.participantCount,
       tags: safeParse(r.tags),
@@ -95,6 +98,7 @@ export async function POST(req: NextRequest) {
       isListed: !isPrivate,
       isPrivate,
       isDefaultRoom: false,
+      roomType: "CUSTOM",
       maxParticipants,
       focusMode,
       pomodoroConfig: JSON.stringify(pomodoroConfig),

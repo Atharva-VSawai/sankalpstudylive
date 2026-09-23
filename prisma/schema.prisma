@@ -163,6 +163,8 @@ model Room {
   isListed     Boolean  @default(true) // visible in discovery
   isPrivate     Boolean  @default(false)
   isDefaultRoom  Boolean  @default(false) // system permanent room (e.g. GATE Focus Room)
+  // roomType: DEFAULT (official study room) | CUSTOM (user-created) | TEST (dev/QA)
+  roomType      String   @default("DEFAULT")
   maxParticipants Int    @default(500) // high default; real limit is the video infra
   participantCount Int  @default(0)
   focusMode     Boolean  @default(true)

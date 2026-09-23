@@ -142,6 +142,7 @@ async function main() {
           isListed: true,
           isPrivate: false,
           isDefaultRoom: true,
+          roomType: "DEFAULT",
           maxParticipants: 500,
           focusMode: true,
           pomodoroConfig: JSON.stringify({ focusMin: 25, breakMin: 5, longBreakMin: 15, rounds: 4 }),
