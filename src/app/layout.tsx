@@ -24,31 +24,30 @@ export const metadata: Metadata = {
     "Pomodoro", "study timer", "study accountability",
   ],
   authors: [{ name: "Sankalp" }],
-  // ── Favicon + PWA icons (SVG stays crisp at any size; the brand mark) ──
+  // ── Favicon + PWA icons (real Sankalp logo mark, transparent PNG) ──
   icons: {
     icon: [
-      { url: "/logo.svg", type: "image/svg+xml" },
-      { url: "/logo.svg", type: "image/svg+xml", sizes: "any" },
+      { url: "/favicon.png", type: "image/png", sizes: "32x32" },
+      { url: "/branding/icon-192.png", type: "image/png", sizes: "192x192" },
     ],
-    apple: "/logo.svg",
-    shortcut: "/logo.svg",
+    apple: "/apple-touch-icon.png",
+    shortcut: "/favicon.png",
   },
-  // ── OpenGraph + Twitter preview ──
+  // ── OpenGraph + Twitter preview (the icon mark) ──
   openGraph: {
     title: "Sankalp — Study with people preparing for the same goal",
     description:
       "Live study rooms and exam communities for India's competitive exams. Study together, stay accountable, earn streaks and badges.",
     siteName: "Sankalp",
     type: "website",
-    images: [{ url: "/logo.svg", alt: "Sankalp Study Live" }],
+    images: [{ url: "/branding/icon-512.png", width: 512, height: 512, alt: "Sankalp Study Live" }],
   },
   twitter: {
-    card: "summary_large_image",
+    card: "summary",
     title: "Sankalp",
     description: "Study with people preparing for the same goal.",
-    images: ["/logo.svg"],
+    images: ["/branding/icon-512.png"],
   },
-  manifest: undefined,
 };
 
 export const viewport: Viewport = {
