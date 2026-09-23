@@ -2,6 +2,7 @@
 
 import { Logo } from "@/components/app/brand"
 import { Link } from "@/lib/router"
+import { Mail } from "lucide-react"
 
 export function Footer() {
   return (
@@ -13,6 +14,10 @@ export function Footer() {
             <p className="mt-3 text-sm text-muted-foreground max-w-xs">
               Study with people preparing for the same goal. Live rooms, accountability and communities for India's exams.
             </p>
+            <a href="mailto:support@sankalpstudylive.in" className="mt-3 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
+              <Mail className="size-4" />
+              support@sankalpstudylive.in
+            </a>
           </div>
           <FooterCol title="Product" links={[
             ["/communities", "Communities"],
@@ -34,6 +39,9 @@ export function Footer() {
         </div>
         <div className="mt-8 pt-6 border-t flex flex-col sm:flex-row gap-3 items-center justify-between">
           <p className="text-xs text-muted-foreground">© {new Date().getFullYear()} Sankalp. Made for India's learners.</p>
+          <a href="mailto:support@sankalpstudylive.in" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+            support@sankalpstudylive.in
+          </a>
         </div>
       </div>
     </footer>

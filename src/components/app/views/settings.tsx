@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { useAuth } from "@/lib/auth-context"
 import { useRouter } from "@/lib/router"
 import { EXAM_META } from "@/components/app/brand"
-import { Save, LogOut, Palette, Globe, Target, Crown, Shield, Bell, AlertTriangle, Download, FileJson, Clock } from "lucide-react"
+import { Save, LogOut, Palette, Globe, Target, Crown, Shield, Bell, AlertTriangle, Download, FileJson, Clock, Mail } from "lucide-react"
 import { toast } from "sonner"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -148,6 +148,24 @@ export function SettingsView() {
       </Card>
 
       <NotificationPrefsCard />
+
+      {/* ── Support contact ── */}
+      <Card>
+        <CardContent className="p-5">
+          <div className="flex items-start gap-3">
+            <div className="size-10 rounded-xl bg-brand-emerald/10 flex items-center justify-center shrink-0">
+              <Mail className="size-5 text-brand-emerald" />
+            </div>
+            <div className="flex-1">
+              <div className="text-sm font-semibold">Need help?</div>
+              <p className="text-xs text-muted-foreground mt-0.5">Email us for support, feedback, or account questions.</p>
+              <a href="mailto:support@sankalpstudylive.in" className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-brand-emerald hover:underline">
+                <Mail className="size-4" /> support@sankalpstudylive.in
+              </a>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="flex justify-between items-center">
         <Button variant="destructive" onClick={() => { logout(); navigate("/") }}><LogOut className="size-4" /> Log out</Button>

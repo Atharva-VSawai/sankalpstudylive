@@ -104,7 +104,7 @@ export async function buildWeeklyRecap(userId: string): Promise<RecapEmail | nul
   ${bestDay ? `<p style="text-align: center; color: #374151;">🏆 Best day: <strong>${bestDay[0]}</strong> with ${formatMinutes(bestDay[1])}</p>` : ""}
   <p style="text-align: center; color: #6b7280; font-size: 14px;">Days you hit your goal: ${goalHitDays}/7</p>
   <div style="text-align: center; margin-top: 32px;">
-    <a href="https://sankalp.in/#/dashboard" style="background: #10b981; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; display: inline-block;">Keep studying</a>
+    <a href="https://sankalpstudylive.in/#/dashboard" style="background: #10b981; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; display: inline-block;">Keep studying</a>
   </div>
   <p style="text-align: center; color: #9ca3af; font-size: 11px; margin-top: 24px;">You're receiving this because you studied on Sankalp this week. Manage preferences in Settings.</p>
 </div>
@@ -122,7 +122,7 @@ export async function sendWeeklyRecap(userId: string): Promise<{ sent: boolean; 
   //   await fetch("https://api.resend.com/emails", {
   //     method: "POST",
   //     headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
-  //     body: JSON.stringify({ from: "Sankalp <recap@sankalp.in>", to: email.to, subject: email.subject, html: email.html }),
+  //     body: JSON.stringify({ from: "Sankalp <recap@sankalpstudylive.in>", to: email.to, subject: email.subject, html: email.html }),
   //   })
   // SANDBOX: log + record an audit entry
   console.log(`[email] weekly recap to ${email.to}: ${email.subject}`)

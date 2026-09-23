@@ -15,7 +15,7 @@ const CONTENT: Record<string, { title: string; body: { h: string; p: string }[] 
       { h: "Live rooms", p: "Other participants in a room see your avatar, name, and (if you enable it) your camera/mic. Leaving a room stops your presence. We do not record room audio or video." },
       { h: "Your choices", p: "You can edit or delete your profile data anytime from Settings. You can block users. You can request full data export or account deletion by contacting support." },
       { h: "Children", p: "Sankalp is intended for learners 13+. Minors should use Sankalp with parental guidance." },
-      { h: "Contact", p: "privacy@sankalp.in for any privacy questions." },
+      { h: "Contact", p: "Email support@sankalpstudylive.in for any privacy questions, data requests, or account deletion requests." },
     ],
   },
   terms: {
@@ -41,7 +41,7 @@ const CONTENT: Record<string, { title: string; body: { h: string; p: string }[] 
       { h: "No harassment", p: "No hate speech, bullying, threats, or sexual content. Report anyone who crosses the line — moderators review every report." },
       { h: "Reporting", p: "Use the Report button on profiles, messages, or rooms. False reports may affect your own account." },
       { h: "Consequences", p: "First issues usually get a warning. Repeated or severe issues lead to mute, kick, suspension, or permanent ban." },
-      { h: "Help us improve", p: "Email community@sankalp.in with feedback. This is a community — help us make it a place worth showing up to." },
+      { h: "Help us improve", p: "Email support@sankalpstudylive.in with feedback. This is a community — help us make it a place worth showing up to." },
     ],
   },
 }
