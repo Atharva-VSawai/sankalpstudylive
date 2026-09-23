@@ -1,7 +1,8 @@
 "use client"
 
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from "react"
-import { api, getToken, setToken, ApiError } from "@/lib/api-client"
+import { createBrowserClient } from "@/lib/supabase"
+import { api, setToken, ApiError } from "@/lib/api-client"
 
 export type Me = {
   id: string
@@ -22,6 +23,9 @@ export type Me = {
     totalMinutes: number
     totalXp: number
     level: number
+    roomMinutesUsed?: number
+    sessionTimeoutMin?: number
+    pomodoroConfig?: string
   }
   streak: {
     current: number
@@ -48,52 +52,121 @@ const Ctx = createContext<AuthState>(null as any)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<Me | null>(null)
   const [loading, setLoading] = useState(true)
+  const supabase = createBrowserClient()
 
-  const refresh = useCallback(async () => {
-    const token = getToken()
-    if (!token) {
-      setMe(null)
-      setLoading(false)
-      return
-    }
+  // ── Fetch user profile from our backend API ──
+  const fetchMe = useCallback(async () => {
     try {
+      const { data: session } = await supabase.auth.getSession()
+      if (!session?.session?.access_token) {
+        setMe(null)
+        setLoading(false)
+        return
+      }
+      // Set the token for API client
+      setToken(session.session.access_token)
+      // Fetch user profile from our API
       const data = await api.get<Me>("/auth/me")
       setMe(data)
     } catch (e) {
-      if (e instanceof ApiError && e.status === 401) setToken(null)
-      setMe(null)
+      // If our API returns 401, the user may be Supabase-auth'd but not in our DB yet
+      if (e instanceof ApiError && e.status === 401) {
+        // Try to create profile via signup endpoint
+        try {
+          const { data: session } = await supabase.auth.getSession()
+          if (session?.session?.access_token) {
+            const { data: userData } = await supabase.auth.getUser()
+            if (userData?.user) {
+              // Call our sync endpoint to create profile
+              await api.post("/auth/sync", {
+                email: userData.user.email,
+                supabaseId: userData.user.id,
+              })
+              const data = await api.get<Me>("/auth/me")
+              setMe(data)
+            }
+          }
+        } catch {
+          setMe(null)
+        }
+      } else {
+        setMe(null)
+      }
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [supabase])
 
   useEffect(() => {
-    refresh()
-  }, [refresh])
+    fetchMe()
 
+    // Listen for auth state changes
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+        if (session?.access_token) {
+          setToken(session.access_token)
+          await fetchMe()
+        }
+      } else if (event === "SIGNED_OUT") {
+        setToken(null)
+        setMe(null)
+      }
+    })
+
+    return () => {
+      authListener.subscription.unsubscribe()
+    }
+  }, [fetchMe, supabase])
+
+  // ── Login via Supabase Auth ──
   const login = useCallback(async (email: string, password: string) => {
-    const res = await api.post<{ token: string; user: Me }>("/auth/login", { email, password })
-    setToken(res.token)
-    setMe(res.user)
-  }, [])
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) throw new Error(error.message)
+    // The auth state change listener will fetchMe automatically
+    // But also do it immediately for UI responsiveness
+    await fetchMe()
+  }, [supabase, fetchMe])
 
+  // ── Signup via Supabase Auth ──
   const signup = useCallback(async (email: string, password: string) => {
-    const res = await api.post<{ token: string; user: Me }>("/auth/signup", { email, password })
-    setToken(res.token)
-    setMe(res.user)
-  }, [])
+    const { error } = await supabase.auth.signUp({ email, password })
+    if (error) throw new Error(error.message)
+    // After signup, Supabase may auto-sign-in (depending on email confirmation settings)
+    // Try to get session
+    const { data } = await supabase.auth.getSession()
+    if (data?.session?.access_token) {
+      setToken(data.session.access_token)
+      // Sync profile with our backend
+      try {
+        await api.post("/auth/sync", { email })
+      } catch {}
+      await fetchMe()
+    } else {
+      // Email confirmation required — set loading false
+      setLoading(false)
+      throw new Error("Check your email to confirm your account")
+    }
+  }, [supabase, fetchMe])
 
+  // ── Google OAuth via Supabase ──
   const loginWithGoogle = useCallback(async () => {
-    // Simulated OAuth: in production this redirects to Google via Supabase Auth.
-    const res = await api.post<{ token: string; user: Me }>("/auth/google-demo")
-    setToken(res.token)
-    setMe(res.user)
-  }, [])
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin }
+    })
+    if (error) throw new Error(error.message)
+  }, [supabase])
 
+  // ── Logout ──
   const logout = useCallback(() => {
+    supabase.auth.signOut()
     setToken(null)
     setMe(null)
-  }, [])
+  }, [supabase])
+
+  const refresh = useCallback(async () => {
+    await fetchMe()
+  }, [fetchMe])
 
   return (
     <Ctx.Provider value={{ me, loading, login, signup, loginWithGoogle, logout, refresh }}>

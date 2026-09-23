@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { verifyToken } from "@/lib/auth"
+import { createServerClient } from "@/lib/supabase"
 
 export type AuthContext = {
   userId: string
@@ -8,22 +8,38 @@ export type AuthContext = {
   user?: { id: string; email: string; role: string; status: string }
 }
 
-// Reads bearer token from the request and returns the authenticated user context.
-// On failure returns null; the route handler decides how to respond.
+// Reads the Supabase JWT from the Authorization header and verifies it.
+// Returns the authenticated user context, or null if unauthenticated.
 export async function getAuth(req: NextRequest): Promise<AuthContext | null> {
   const auth = req.headers.get("authorization") || ""
   const bearer = auth.startsWith("Bearer ") ? auth.slice(7) : null
   const cookieToken = req.cookies.get("sankalp_session")?.value
   const token = bearer || cookieToken
   if (!token) return null
-  const payload = verifyToken<{ uid: string; exp: number }>(token)
-  if (!payload || payload.exp < Math.floor(Date.now() / 1000)) return null
-  const user = await db.user.findUnique({
-    where: { id: payload.uid },
-    select: { id: true, email: true, role: true, status: true },
-  })
-  if (!user || user.status !== "active") return null
-  return { userId: user.id, role: user.role, user }
+
+  try {
+    // Verify the JWT with Supabase
+    const supabase = createServerClient()
+    const { data, error } = await supabase.auth.getUser(token)
+    if (error || !data?.user) return null
+
+    // Look up the user in our database by email (Supabase auth user ID maps to our User)
+    // We match by email since Supabase Auth manages the identity
+    const user = await db.user.findFirst({
+      where: {
+        OR: [
+          { email: data.user.email! },
+          { googleSub: data.user.id }
+        ]
+      },
+      select: { id: true, email: true, role: true, status: true }
+    })
+
+    if (!user || user.status !== "active") return null
+    return { userId: user.id, role: user.role, user }
+  } catch {
+    return null
+  }
 }
 
 export function unauthorized() {

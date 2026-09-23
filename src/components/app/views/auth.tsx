@@ -4,14 +4,14 @@ import { useState } from "react"
 import { useAuth } from "@/lib/auth-context"
 import { useRouter } from "@/lib/router"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardDescription, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Logo, EXAM_META } from "@/components/app/brand"
-import { ApiError } from "@/lib/api-client"
+import { Eye, EyeOff, Loader2, Mail, Lock } from "lucide-react"
 import { toast } from "sonner"
-import { Eye, EyeOff, Loader2, Mail, Lock, User } from "lucide-react"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { createBrowserClient } from "@/lib/supabase"
 
 export function AuthView({ mode }: { mode: "login" | "signup" }) {
   const { login, signup, loginWithGoogle } = useAuth()
@@ -31,9 +31,8 @@ export function AuthView({ mode }: { mode: "login" | "signup" }) {
       else await signup(email, password)
       toast.success(mode === "login" ? "Welcome back!" : "Account created!")
       navigate(next, { replace: true })
-    } catch (err) {
-      const msg = err instanceof ApiError ? err.message : "Something went wrong"
-      toast.error(msg)
+    } catch (err: any) {
+      toast.error(err.message || "Authentication failed")
     } finally {
       setBusy(false)
     }
@@ -43,9 +42,11 @@ export function AuthView({ mode }: { mode: "login" | "signup" }) {
     setBusy(true)
     try {
       await loginWithGoogle()
-      toast.success("Signed in with Google (demo)")
-      navigate(next, { replace: true })
-    } catch { toast.error("Google sign-in failed") } finally { setBusy(false) }
+      // OAuth redirect — page will reload on callback
+    } catch (err: any) {
+      toast.error(err.message || "Google sign-in failed")
+      setBusy(false)
+    }
   }
 
   const fillDemo = (e: string, p: string) => { setEmail(e); setPassword(p) }
@@ -105,22 +106,6 @@ export function AuthView({ mode }: { mode: "login" | "signup" }) {
                 {mode === "login" ? "Create an account" : "Log in"}
               </button>
             </p>
-          </CardContent>
-        </Card>
-
-        <Card className="mt-4 border-dashed">
-          <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1.5"><User className="size-3.5" /> Demo accounts — click to fill:</p>
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <button onClick={() => fillDemo("admin@sankalp.in", "admin123")} className="text-left rounded-md border px-2.5 py-1.5 hover:bg-accent">
-                <div className="font-semibold">Admin</div>
-                <div className="text-muted-foreground">admin@sankalp.in</div>
-              </button>
-              <button onClick={() => fillDemo("aarav@sankalp.in", "demo1234")} className="text-left rounded-md border px-2.5 py-1.5 hover:bg-accent">
-                <div className="font-semibold">Aarav (GATE)</div>
-                <div className="text-muted-foreground">aarav@sankalp.in</div>
-              </button>
-            </div>
           </CardContent>
         </Card>
       </div>
