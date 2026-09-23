@@ -102,3 +102,29 @@ Stage Summary:
 - Camera: correct API (setCameraEnabled), headless browser can't test actual video but API is verified correct.
 - Microphone: never enabled (no setMicrophoneEnabled calls, camera-only token grant).
 - Pre-existing issue (NOT fixed, per user instruction): POST /api/study/sessions/[id]/stop 500 — Prisma error "Unknown field `badges` for include on model `Profile`". Badges are on User (via UserBadge), not Profile. This is in src/lib/study.ts:156 evaluateBadges. Affects badge evaluation on session stop, not the LiveKit connection. Recommended fix for next phase: change `db.profile.findUnique({ include: { badges: ... } })` to `db.user.findUnique({ include: { badges: { include: { badge: true } } } })` in evaluateBadges.
+
+---
+Task ID: FIX-PREEXISTING-003
+Agent: general-purpose (pre-existing issues cleanup)
+Task: Fix all remaining pre-existing issues identified during LiveKit verification.
+
+Work Log:
+- Investigated all pre-existing errors via dev.log scan + comprehensive API route probing (21 endpoints).
+- Found 2 instances of the same schema bug: code queried `db.profile.findUnique({ include: { badges: ... } })` but `badges` (UserBadge[]) is a relation on `User`, NOT `Profile`. Both caused PrismaClientValidationError 500s.
+- Fix #1 — src/lib/study.ts `evaluateBadges()` (lines 156-166): Changed `db.profile.findUnique({ where: { userId }, include: { badges: { include: { badge: true } } } })` to `db.user.findUnique({ where: { id: userId }, include: { badges: { include: { badge: true } }, profile: { select: { totalXp: true } } } })`. Updated all references from `profile.badges` to `user.badges` and `profile.totalXp` to `user.profile.totalXp`. This was the root cause of `POST /api/study/sessions/[id]/stop 500` (badge evaluation on session end) and `POST /api/study/sessions 500` (when session close triggers evaluateBadges). Impact: study sessions couldn't be stopped or closed without a server error — every study session end silently failed, breaking XP/badge awards and streak tracking.
+- Fix #2 — src/app/api/admin/users/[id]/route.ts (lines 12-22, 63-65): Moved `badges: { include: { badge: true } }` from `profile: { include: { badges: ... } }` to the top-level User include. Changed `user.profile?.badges` to `user.badges`. Impact: admin user detail page would 500 on any user lookup — admin couldn't view individual user details (badges, sessions, streaks).
+- Introduced and immediately fixed a syntax error during Fix #1 (extra `}` brace in include block). Detected via dev.log "Parsing ecmascript source code failed" error on study.ts:164. Fixed within the same session before proceeding.
+- Verified all 21 major API routes return 200 (or expected 404/405 for missing handlers): auth/me, communities, rooms, leaderboard, study/sessions, study/goals/today, study/goals, study/badges, study/achievements, study/streak/freeze, study/heatmap, study/weekly, friends/online, notifications, rooms/usage, pomodoro/settings, admin/stats, admin/users, admin/users/[id], admin/system-health. (admin/communities 405 and admin/reports 404 are correct — those routes intentionally don't have GET handlers; listing is served from /api/reports and /api/communities.)
+- End-to-end browser verification: walked through 18 pages (dashboard, study, journal, leaderboard, friends, profile, notifications, settings, communities, admin dashboard, admin users, admin user detail, admin reports, admin system-health, admin communities, admin badges, admin audit-logs, admin subscriptions). Zero client-side console errors. Zero server-side dev.log errors.
+- Verified study session stop flow in browser: started solo study session → clicked "Stop & save" → `POST /api/study/sessions/[id]/stop 200` (was 500 before fix). Badge evaluation now runs successfully on session end.
+- Regression check: LiveKit room flow still fully functional after all fixes — room view renders participant grid ("1 student studying · Silent focus room" with "Sankalp Admin (you)"), LiveKit Cloud connection confirmed (`connected to Livekit Server edition: 1, version: 1.13.7, region: Japan`), no console or dev.log errors.
+- `bun run lint` passes clean.
+
+Stage Summary:
+- 2 pre-existing bugs fixed (both `Profile.badges` schema mismatch → `User.badges`).
+- Study session stop/start now returns 200 (was 500). Badge evaluation works end-to-end.
+- Admin user detail now returns 200 (was 500). Admin can view individual user badges/sessions/streaks.
+- All 21 probed API routes now return 200 (or expected 404/405).
+- 18-page browser walkthrough: zero console errors, zero dev.log errors.
+- LiveKit room flow regression-verified: still works perfectly.
+- Lint clean. No new issues introduced.

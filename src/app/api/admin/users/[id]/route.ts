@@ -12,7 +12,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const user = await db.user.findUnique({
     where: { id },
     include: {
-      profile: { include: { badges: { include: { badge: true } } } },
+      // NOTE: `badges` (UserBadge[]) is a relation on `User`, not `Profile`.
+      badges: { include: { badge: true } },
+      profile: true,
       streak: true,
       subscription: true,
       memberships: { include: { community: { select: { id: true, slug: true, name: true, examGoal: true } } } },
@@ -60,7 +62,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     } : null,
     streak: user.streak,
     subscription: user.subscription,
-    badges: (user.profile?.badges ?? []).map((b) => ({
+    badges: (user.badges ?? []).map((b) => ({
       slug: b.badge.slug, name: b.badge.name, description: b.badge.description, tier: b.badge.tier, awardedAt: b.awardedAt,
     })),
     communities: user.memberships.map((m) => ({ community: m.community.name, slug: m.community.slug, role: m.role, joinedAt: m.joinedAt })),

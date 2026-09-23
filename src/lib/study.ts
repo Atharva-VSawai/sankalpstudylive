@@ -153,9 +153,17 @@ export async function evaluateBadges(
   ctx: { communityId: string | null; roomId: string | null }
 ) {
   const awarded: { slug: string; name: string; description: string; tier: string }[] = []
-  const profile = await db.profile.findUnique({ where: { userId }, include: { badges: { include: { badge: true } } } })
+  // NOTE: `badges` (UserBadge[]) is a relation on `User`, not `Profile`.
+  // Query User and include its profile (for level/XP) and badges (for dedup).
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    include: {
+      badges: { include: { badge: true } },
+      profile: { select: { totalXp: true } },
+    },
+  })
   const streak = await db.streak.findUnique({ where: { userId } })
-  const have = new Set(profile?.badges.map((b) => b.badge.slug) ?? [])
+  const have = new Set(user?.badges.map((b) => b.badge.slug) ?? [])
 
   const grant = async (slug: string) => {
     if (have.has(slug)) return
@@ -173,7 +181,7 @@ export async function evaluateBadges(
   if ((streak?.current ?? 0) >= 7) await grant("streak_7")
   if ((streak?.current ?? 0) >= 30) await grant("streak_30")
   if ((streak?.current ?? 0) >= 100) await grant("streak_100")
-  const level = profile ? levelForXp(profile.totalXp + sessionMinutes * XP_PER_MINUTE) : 1
+  const level = user?.profile ? levelForXp(user.profile.totalXp + sessionMinutes * XP_PER_MINUTE) : 1
   if (level >= 10) await grant("level_10")
   if (level >= 25) await grant("level_25")
 
