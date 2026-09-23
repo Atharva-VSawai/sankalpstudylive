@@ -10,6 +10,7 @@ import { Avatar, LiveDot, Logo, EXAM_META, formatMinutes } from "@/components/ap
 import { ArrowRight, Users, Video, Flame, Trophy, BookOpen, Clock, Sparkles, ChevronRight, Timer, ShieldCheck, Zap } from "lucide-react"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { useCountUp } from "@/components/app/use-count-up"
+import { ExamSpotlights } from "@/components/app/exam-spotlights"
 
 export function LandingView() {
   const { navigate } = useRouter()
@@ -136,11 +137,14 @@ export function LandingView() {
         </div>
       </section>
 
-      {/* Communities */}
+      {/* Exam spotlights — replaces the simpler communities grid */}
+      <ExamSpotlights />
+
+      {/* All communities (compact grid below spotlights) */}
       <section className="mx-auto max-w-7xl px-4 py-14">
         <div className="text-center max-w-2xl mx-auto mb-8">
-          <h2 className="text-2xl md:text-3xl font-bold">Find your exam community</h2>
-          <p className="mt-2 text-muted-foreground">Pick a goal. Join rooms hosted by people on the same journey.</p>
+          <h2 className="text-2xl md:text-3xl font-bold">All communities</h2>
+          <p className="mt-2 text-muted-foreground">Every exam, every aspirant — pick your path.</p>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {communities.map((c: any) => (

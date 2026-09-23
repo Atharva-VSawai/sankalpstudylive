@@ -353,3 +353,56 @@ Unresolved / Next-phase priorities (for the next webDevReview round):
 - "Best day this week" highlight on dashboard.
 - Whiteboard: add text tool, undo, stroke color per-user default.
 - More landing polish: hero video background, "as seen in" section.
+
+---
+Task ID: CRON-5
+Agent: webDevReview cron (round 5)
+Task: QA the platform, add weekly stats, whiteboard text+undo, exam spotlights, recap email
+
+Current project status / assessment:
+- Platform stable from CRON-4. All 53 API endpoints return 200, all 19 views render correctly, zero console errors.
+- No bugs found in QA. Proceeded to add 4 new features.
+
+Current goals / completed modifications / verification results:
+
+  1. Weekly stats + "best day this week" highlight (NEW)
+     - API: GET /api/study/weekly — returns thisWeek (7-day per-day buckets), lastWeek, thisTotal, lastTotal, changePct, bestDay {day, date, minutes, sessions}, today {minutes, sessions}, dailyGoalMin, goalCompletedToday. Timezone-aware (Monday-start week).
+     - Frontend: new WeeklyStatsCard (src/components/app/weekly-stats-card.tsx) — "This week" card with: best-day highlight (amber/emerald gradient banner with Trophy icon), 7-day bar chart (best day = saffron, today = emerald, empty = muted), Today + Week total stats, change% vs last week badge (up=emerald TrendingUp, down=red TrendingDown). Empty state: "No sessions yet this week. Start studying to set your best day! 🔥".
+     - Placed on Dashboard (above the StreakFreezeCard).
+     - Verified: /api/study/weekly → 200; dashboard shows "This week" card with TODAY/WEEK TOTAL stats + bar chart.
+
+  2. Whiteboard text tool + undo (NEW)
+     - Lib: added undoWhiteboardStroke to presence.ts (removes the last stroke by a user, emits whiteboard_undo event). SSE events stream now intercepts whiteboard_undo and resends a fresh whiteboard_snapshot so all clients resync.
+     - API: POST /api/rooms/[id]/whiteboard now supports: {kind:"text", color, x, y, text} for text labels (max 200 chars), {action:"undo"} to undo your last stroke, plus existing pen + clear.
+     - Frontend: Whiteboard component now has 4 tools — Pen (Pencil), Text (Type), Eraser, Undo (Undo2) + Clear. Text tool: click places an inline Input at the click location, type + Enter to commit, Esc to cancel, onBlur to commit. Text strokes render via canvas fillText with 16px semibold. Undo button optimistically removes the user's last stroke + calls the API.
+     - Verified: text stroke API returns kind:"text"/text field; undo returns undone:true; strokes count drops from 2→1 after undo.
+
+  3. Exam-specific landing spotlights (NEW) — styling
+     - New ExamSpotlights component (src/components/app/exam-spotlights.tsx) — replaces the simpler communities grid on the landing with detailed per-exam cards: exam-colored header bar, large 2-letter badge, tagline, description (2-line clamp), member count + live rooms indicator, "Open community" + "Browse rooms" CTAs. Picks the 6 featured communities, falls back to the largest.
+     - The original compact communities grid is preserved below as "All communities".
+     - Verified: landing shows "Find your exam community" (spotlights) + "All communities" (compact grid).
+
+  4. Weekly recap email architecture (NEW) — Resend-compatible
+     - Lib: new src/lib/email.ts — buildWeeklyRecap(userId) builds a RecapEmail {to, subject, html, text, stats} with a branded HTML template (emerald gradient header, 4 stat cards, best-day callout, CTA button, manage-preferences footer). sendWeeklyRecap(userId) "sends" it — in the sandbox it logs + records an AuditLog entry; in production it calls Resend's POST /emails with RESEND_API_KEY (documented in the code comment).
+     - API: GET /api/admin/recap?userId=... (preview, admin only), POST /api/admin/recap?userId=... (send, admin only), POST /api/admin/recap?all=true (send to all users with recent activity, admin only).
+     - Frontend: admin Users section now has a per-user Mail button (title "Send weekly recap email") that calls POST /api/admin/recap?userId=... with toast feedback.
+     - Verified: preview returns the email payload (to, subject, html); send returns {sent:true, email:{...}} for aarav with subject "Your Sankalp week: 0m studied · 🔥 7d streak"; admin users page has the Mail button.
+
+- Ran `bun run lint` → clean (0 errors, 0 warnings).
+- All features browser-verified with agent-browser (zero console errors).
+
+Stage Summary:
+- Platform remains fully stable; 4 new features added.
+- New API endpoints (/api/study/weekly, /api/admin/recap GET+POST, enhanced whiteboard POST with text+undo) are backward-compatible. The Android contract gains a weekly-stats endpoint, a recap-email admin endpoint, whiteboard text+undo actions, and the whiteboard_undo SSE event — nothing breaks.
+- All features verified: weekly stats card on dashboard, whiteboard text tool + undo, exam spotlights on landing, recap email preview + send.
+
+Unresolved / Next-phase priorities (for the next webDevReview round):
+- Update docs/mobile-contract.md to document: GET /api/study/weekly, GET+POST /api/admin/recap, the whiteboard text stroke + undo action, the whiteboard_undo SSE event, and the kind/text fields on WhiteboardStroke.
+- Real LiveKit/Supabase Auth/Redis swap (still sandbox-simulated).
+- Push notifications (FCM) — weekly recap email is now done; FCM push is the remaining realtime-out-of-app channel.
+- Playwright E2E tests for the golden path.
+- "As seen in" / press section on landing.
+- Whiteboard: stroke thickness control, per-user default color.
+- Dashboard: "achievements this week" (badges earned, streak milestones).
+- Profile: study-streak calendar view (green squares for studied days).
+- Room: raise-hand feature (Hand icon → bumps participant to top of list).

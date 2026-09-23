@@ -131,6 +131,12 @@ export function Whiteboard({ roomId, onOpenChange }: { roomId: string; onOpenCha
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (tool === "eraser") return // eraser handled as clear for now
+    if (tool === "text") {
+      // place a text input at the click location
+      const p = getPoint(e)
+      setTextInput({ x: p.x, y: p.y, value: "" })
+      return
+    }
     e.currentTarget.setPointerCapture(e.pointerId)
     setDrawing(true)
     currentStrokeRef.current = {
@@ -180,6 +186,39 @@ export function Whiteboard({ roomId, onOpenChange }: { roomId: string; onOpenCha
     } catch (e: any) { toast.error(e.message) }
   }
 
+  const undoStroke = async () => {
+    try {
+      const res = await api.post<{ undone: boolean }>(`/rooms/${roomId}/whiteboard`, { action: "undo" })
+      if (res.undone) {
+        // optimistically remove our last stroke
+        setStrokes((prev) => {
+          const arr = [...prev]
+          for (let i = arr.length - 1; i >= 0; i--) {
+            if (arr[i].userId === "me" || arr[i].userId === "current") { arr.splice(i, 1); break }
+          }
+          return arr
+        })
+        toast.success("Undid your last stroke")
+      } else {
+        toast.info("Nothing to undo")
+      }
+    } catch (e: any) { toast.error(e.message) }
+  }
+
+  const submitText = async () => {
+    if (!textInput) return
+    const text = textInput.value.trim()
+    if (!text) { setTextInput(null); return }
+    try {
+      const res = await api.post<{ stroke: Stroke }>(`/rooms/${roomId}/whiteboard`, {
+        kind: "text", color, x: textInput.x, y: textInput.y, text,
+      })
+      setStrokes((prev) => [...prev.slice(-199), res.stroke])
+      setTextInput(null)
+      setTool("pen")
+    } catch (e: any) { toast.error(e.message); setTextInput(null) }
+  }
+
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => onOpenChange?.(false)}>
       <div className="bg-card rounded-xl shadow-2xl w-full max-w-4xl h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
@@ -198,8 +237,18 @@ export function Whiteboard({ roomId, onOpenChange }: { roomId: string; onOpenCha
                 />
               ))}
             </div>
+            <div className="h-6 w-px bg-border mx-1" />
+            <Button size="sm" variant={tool === "pen" ? "default" : "outline"} onClick={() => setTool("pen")} title="Pen">
+              <Pencil className="size-3.5" />
+            </Button>
+            <Button size="sm" variant={tool === "text" ? "default" : "outline"} onClick={() => setTool("text")} title="Text">
+              <Type className="size-3.5" />
+            </Button>
             <Button size="sm" variant={tool === "eraser" ? "default" : "outline"} onClick={() => setTool("eraser")} title="Eraser (clears board)">
               <Eraser className="size-3.5" />
+            </Button>
+            <Button size="sm" variant="outline" onClick={undoStroke} title="Undo your last stroke">
+              <Undo2 className="size-3.5" />
             </Button>
             <Button size="sm" variant="outline" onClick={clearBoard} title="Clear board">
               <Trash2 className="size-3.5" />
@@ -214,12 +263,38 @@ export function Whiteboard({ roomId, onOpenChange }: { roomId: string; onOpenCha
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
             onPointerLeave={onPointerUp}
-            className={cn("absolute inset-0", tool === "pen" ? "cursor-crosshair" : "cursor-not-allowed")}
+            className={cn("absolute inset-0", tool === "pen" ? "cursor-crosshair" : tool === "text" ? "cursor-text" : "cursor-not-allowed")}
           />
-          {strokes.length === 0 && !drawing && (
+          {strokes.length === 0 && !drawing && !textInput && (
             <div className="absolute inset-0 flex items-center justify-center text-muted-foreground text-sm pointer-events-none">
               Draw a formula, a diagram, or a quick concept map. Everyone in the room sees it in real time.
             </div>
+          )}
+          {tool === "text" && !textInput && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 text-xs px-3 py-1 rounded-full pointer-events-none">
+              Click anywhere to place text
+            </div>
+          )}
+          {textInput && (
+            <Input
+              autoFocus
+              value={textInput.value}
+              onChange={(e) => setTextInput({ ...textInput, value: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); submitText() }
+                if (e.key === "Escape") { setTextInput(null) }
+              }}
+              onBlur={submitText}
+              placeholder="Type and press Enter…"
+              maxLength={200}
+              className="absolute z-10 h-8 w-48 text-sm"
+              style={{
+                left: `${textInput.x * 100}%`,
+                top: `${textInput.y * 100}%`,
+                color,
+                borderColor: color,
+              }}
+            />
           )}
         </div>
       </div>

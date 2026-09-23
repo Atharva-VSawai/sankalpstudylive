@@ -11,7 +11,7 @@ import { Link, useRouter } from "@/lib/router"
 import { useAuth } from "@/lib/auth-context"
 import {
   Shield, Users, Video, Flag, BarChart3, LayoutDashboard, Home, Plus, Check, X, Ban,
-  UserCog, RefreshCw, AlertTriangle, Crown, Activity, TrendingUp,
+  UserCog, RefreshCw, AlertTriangle, Crown, Activity, TrendingUp, Mail,
 } from "lucide-react"
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell, LineChart, Line } from "recharts"
 import { cn } from "@/lib/utils"
@@ -98,6 +98,14 @@ function UsersSection() {
     mutationFn: ({ id, ...patch }: { id: string; role?: string; status?: string }) => api.patch(`/admin/users/${id}`, patch),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin", "users"] }); toast.success("User updated") },
   })
+  const sendRecap = useMutation({
+    mutationFn: (userId: string) => api.post(`/admin/recap?userId=${userId}`, {}),
+    onSuccess: (res: any) => {
+      if (res.sent) toast.success("Weekly recap sent (sandbox: logged)")
+      else toast.info("No recap to send — user has no recent activity")
+    },
+    onError: (e: any) => toast.error(e.message || "Failed to send recap"),
+  })
   const users = data?.users ?? []
   return (
     <div className="space-y-4">
@@ -133,11 +141,16 @@ function UsersSection() {
                     <span className={cn("text-xs px-2 py-0.5 rounded-full", u.status === "active" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" : "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400")}>{u.status}</span>
                   </td>
                   <td className="p-3">
-                    {u.status === "active" ? (
-                      <Button size="sm" variant="outline" onClick={() => update.mutate({ id: u.id, status: "suspended" })}><Ban className="size-3.5" /> Suspend</Button>
-                    ) : (
-                      <Button size="sm" variant="outline" onClick={() => update.mutate({ id: u.id, status: "active" })}><Check className="size-3.5" /> Reactivate</Button>
-                    )}
+                    <div className="flex gap-1">
+                      {u.status === "active" ? (
+                        <Button size="sm" variant="outline" onClick={() => update.mutate({ id: u.id, status: "suspended" })}><Ban className="size-3.5" /> Suspend</Button>
+                      ) : (
+                        <Button size="sm" variant="outline" onClick={() => update.mutate({ id: u.id, status: "active" })}><Check className="size-3.5" /> Reactivate</Button>
+                      )}
+                      <Button size="sm" variant="ghost" title="Send weekly recap email" onClick={() => sendRecap.mutate(u.id)}>
+                        <Mail className="size-3.5" />
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               ))}
