@@ -1,0 +1,456 @@
+// Sankalp — India-focused virtual study platform
+// Prisma schema. Production target: PostgreSQL/Supabase (UUIDs, enums, arrays, RLS).
+// Sandbox runtime: SQLite. We mirror the PG design with cuid IDs and string-typed enums
+// (validated in the API layer) so the schema maps 1:1 to the documented PG target.
+// See docs/database.md for the production PostgreSQL DDL and docs/mobile-contract.md for the API.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUTH & USERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model User {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  passwordHash   String? // null when OAuth-only
+  googleSub      String?  @unique
+  emailVerifiedAt DateTime?
+  timezone       String   @default("Asia/Kolkata")
+  role           String   @default("user") // user | moderator | admin
+  status         String   @default("active") // active | suspended | banned
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  lastLoginAt    DateTime?
+
+  profile        Profile?
+  authSessions   AuthSession[]
+  memberships    CommunityMember[]
+  ownedRooms     Room[]         @relation("OwnedRooms")
+  roomMemberships RoomMember[]
+  studySessions  StudySession[]
+  dailyGoals     DailyGoal[]
+  streak         Streak?
+  badges         UserBadge[]
+  sentRequests   Friendship[]   @relation("FromUser")
+  receivedRequests Friendship[] @relation("ToUser")
+  blocksGiven    Block[]         @relation("Blocker")
+  blocksReceived Block[]         @relation("Blocked")
+  reportsMade    Report[]        @relation("Reporter")
+  reportsAgainst Report[]        @relation("Reported")
+  messages       RoomMessage[]
+  notifications  Notification[]  @relation("NotifyUser")
+  devices        UserDevice[]
+  referralsMade  Referral[]      @relation("Referrer")
+  referredBy     Referral?       @relation("ReferredUser")
+  payments       Payment[]
+  subscription   Subscription?
+  leaderboardRows LeaderboardSnapshot[]
+  auditLogs      AuditLog[]      @relation("Actor")
+
+  @@index([role])
+  @@index([status])
+}
+
+model Profile {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  username        String   @unique
+  displayName     String
+  avatarUrl       String?
+  bio             String?
+  examGoal        String? // e.g. GATE | JEE | NEET | UPSC | CAT | SSC | Banking | MPSC | Placements | DSA | General Study
+  targetYear      Int?
+  studyHoursGoal  Int      @default(6) // daily goal in minutes (default 6h studied? -> stored in minutes)
+  onboardingComplete Boolean @default(false)
+  streakCount     Int      @default(0)
+  totalMinutes    Int      @default(0)
+  totalXp         Int      @default(0)
+  level           Int      @default(1)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([examGoal])
+  @@index([username])
+}
+
+model AuthSession {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token        String   @unique // signed session token
+  userAgent    String?
+  ip           String?
+  createdAt    DateTime @default(now())
+  expiresAt    DateTime
+  revokedAt    DateTime?
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COMMUNITIES
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Community {
+  id          String   @id @default(cuid())
+  slug        String   @unique // gate, jee, neet, upsc, ...
+  name        String
+  description String
+  examGoal    String
+  color       String   @default("#10b981")
+  iconUrl     String?
+  tags        String   @default("[]") // JSON array
+  memberCount Int      @default(0)
+  isFeatured  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members     CommunityMember[]
+  rooms       Room[]
+  studySessions StudySession[]
+
+  @@index([examGoal])
+  @@index([isFeatured])
+}
+
+model CommunityMember {
+  id          String   @id @default(cuid())
+  communityId String
+  userId      String
+  role        String   @default("member") // member | moderator | owner
+  joinedAt    DateTime @default(now())
+
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([communityId, userId])
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ROOMS (live study rooms)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Room {
+  id            String   @id @default(cuid())
+  communityId   String?
+  name          String
+  description   String?
+  ownerId       String
+  livekitRoom   String   @unique // LiveKit room name
+  isLive        Boolean  @default(false)
+  isListed     Boolean  @default(true) // visible in discovery
+  isPrivate     Boolean  @default(false)
+  maxParticipants Int    @default(20)
+  participantCount Int  @default(0)
+  focusMode     Boolean  @default(true)
+  pomodoroConfig String @default("{\"focusMin\":25,\"breakMin\":5,\"longBreakMin\":15,\"rounds\":4}")
+  tags          String   @default("[]")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  startedAt     DateTime?
+  endedAt       DateTime?
+
+  community     Community? @relation(fields: [communityId], references: [id])
+  owner         User       @relation("OwnedRooms", fields: [ownerId], references: [id])
+  members       RoomMember[]
+  messages      RoomMessage[]
+  studySessions StudySession[]
+
+  @@index([communityId])
+  @@index([isLive])
+  @@index([isListed])
+  @@index([ownerId])
+}
+
+model RoomMember {
+  id        String   @id @default(cuid())
+  roomId    String
+  userId    String
+  role      String   @default("participant") // host | co_host | participant | viewer
+  muted     Boolean  @default(true) // mic defaults OFF
+  cameraOff Boolean  @default(true)
+  joinedAt  DateTime @default(now())
+  leftAt    DateTime?
+  lastSeenAt DateTime @default(now())
+
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([userId])
+  @@index([lastSeenAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STUDY ENGINE
+// ─────────────────────────────────────────────────────────────────────────────
+
+model StudySession {
+  id          String   @id @default(cuid())
+  userId      String
+  roomId      String?
+  communityId String?
+  startedAt   DateTime @default(now())
+  endedAt     DateTime?
+  durationMin Int      @default(0) // server-computed minutes
+  xpEarned    Int      @default(0)
+  mode        String   @default("focus") // focus | pomodoro | break
+  isVerified  Boolean  @default(true) // server-verified
+  createdAt   DateTime @default(now())
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  room         Room?        @relation(fields: [roomId], references: [id])
+  community    Community?   @relation(fields: [communityId], references: [id])
+
+  @@index([userId])
+  @@index([roomId])
+  @@index([startedAt])
+}
+
+model DailyGoal {
+  id          String   @id @default(cuid())
+  userId      String
+  date        DateTime // local date (stored as midnight UTC of that day)
+  targetMin   Int      @default(360)
+  achievedMin Int      @default(0)
+  completed   Boolean  @default(false)
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([date])
+}
+
+model Streak {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  current       Int      @default(0)
+  longest       Int      @default(0)
+  lastStudyDate DateTime? // local date of last study
+  updatedAt     DateTime @updatedAt
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([current])
+}
+
+model Badge {
+  id          String   @id @default(cuid())
+  slug        String   @unique // first_session, streak_7, streak_30, night_owl, etc.
+  name        String
+  description String
+  iconUrl     String?
+  tier        String   @default("bronze") // bronze | silver | gold | platinum
+  xpReward    Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  awards      UserBadge[]
+}
+
+model UserBadge {
+  id        String   @id @default(cuid())
+  userId    String
+  badgeId   String
+  awardedAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badge     Badge    @relation(fields: [badgeId], references: [id])
+
+  @@unique([userId, badgeId])
+  @@index([badgeId])
+}
+
+model LeaderboardSnapshot {
+  id          String   @id @default(cuid())
+  scope       String // global | community:{id} | friends:{userId}
+  period      String // daily | weekly | monthly | alltime
+  userId      String
+  rank        Int
+  minutes     Int
+  xp          Int
+  capturedAt  DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([scope, period, capturedAt])
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SOCIAL
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Friendship {
+  id          String   @id @default(cuid())
+  fromUserId  String
+  toUserId    String
+  status      String   @default("pending") // pending | accepted | declined | blocked
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  fromUser    User     @relation("FromUser", fields: [fromUserId], references: [id], onDelete: Cascade)
+  toUser      User     @relation("ToUser", fields: [toUserId], references: [id], onDelete: Cascade)
+
+  @@unique([fromUserId, toUserId])
+  @@index([toUserId, status])
+}
+
+model Block {
+  id          String   @id @default(cuid())
+  blockerId   String
+  blockedId   String
+  createdAt   DateTime @default(now())
+
+  blocker     User     @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked     User     @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@index([blockedId])
+}
+
+model Report {
+  id           String   @id @default(cuid())
+  reporterId   String
+  reportedId   String?
+  reportedRoomId String?
+  reportedMessageId String?
+  reason       String // spam | harassment | cheating | nsfw | other
+  detail       String?
+  status       String   @default("open") // open | reviewing | resolved | dismissed
+  resolution   String? // warning | mute | kick | ban | no_action
+  createdAt    DateTime @default(now())
+  resolvedAt   DateTime?
+  resolvedById String?
+
+  reporter     User     @relation("Reporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  reported     User?    @relation("Reported", fields: [reportedId], references: [id])
+
+  @@index([status])
+  @@index([reportedId])
+  @@index([reportedRoomId])
+}
+
+model RoomMessage {
+  id          String   @id @default(cuid())
+  roomId      String
+  userId      String
+  text        String
+  isSystem    Boolean  @default(false)
+  isDeleted   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  room        Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, createdAt])
+  @@index([userId])
+}
+
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String
+  type        String // friend_request | friend_accept | badge_earned | goal_completed | streak_milestone | room_invite | system | report_update
+  title       String
+  body        String?
+  link        String? // client route hash e.g. #/rooms/123
+  read        Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  user        User     @relation("NotifyUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MONETIZATION, DEVICES, REFERRALS, AUDIT
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Subscription {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  plan        String   @default("free") // free | plus | pro
+  status      String   @default("active") // active | canceled | past_due
+  startedAt   DateTime @default(now())
+  renewsAt    DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Payment {
+  id          String   @id @default(cuid())
+  userId      String
+  amount      Int // in paise (INR)
+  currency    String   @default("INR")
+  plan        String
+  provider    String   @default("razorpay")
+  providerRef String?
+  status      String   @default("pending") // pending | paid | failed | refunded
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+}
+
+model UserDevice {
+  id          String   @id @default(cuid())
+  userId      String
+  platform    String // web | android | ios
+  pushToken   String?
+  appVersion  String?
+  lastSeenAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@unique([userId, platform])
+}
+
+model Referral {
+  id            String   @id @default(cuid())
+  code          String   @unique
+  referrerId    String
+  referredUserId String?  @unique
+  status        String   @default("pending") // pending | signed_up | first_session | rewarded
+  createdAt     DateTime @default(now())
+  completedAt   DateTime?
+
+  referrer      User     @relation("Referrer", fields: [referrerId], references: [id], onDelete: Cascade)
+  referredUser  User?    @relation("ReferredUser", fields: [referredUserId], references: [id])
+
+  @@index([referrerId])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorId      String?
+  action      String // user_ban, room_close, report_resolve, ...
+  targetType   String?
+  targetId    String?
+  metadata    String   @default("{}") // JSON
+  createdAt   DateTime @default(now())
+
+  actor       User?    @relation("Actor", fields: [actorId], references: [id])
+
+  @@index([action])
+  @@index([createdAt])
+}

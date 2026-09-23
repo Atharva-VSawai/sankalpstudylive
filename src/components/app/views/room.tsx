@@ -1,0 +1,388 @@
+"use client"
+
+import { useEffect, useRef, useState, useCallback } from "react"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { api, getToken } from "@/lib/api-client"
+import { Card, CardContent } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Avatar, LiveDot } from "@/components/app/brand"
+import { useRouter, Link } from "@/lib/router"
+import { useAuth } from "@/lib/auth-context"
+import {
+  Mic, MicOff, Video, VideoOff, PhoneOff, Send, Play, Square, Coffee, Timer,
+  Users, MessageSquare, Settings, Crown, Volume2, Hand, LogOut, Lock, Focus, Sparkles, Zap,
+} from "lucide-react"
+import { toast } from "sonner"
+import { cn } from "@/lib/utils"
+
+type Participant = {
+  userId: string
+  username: string
+  displayName: string
+  avatarUrl?: string
+  micOn: boolean
+  camOn: boolean
+  isSpeaking: boolean
+  role: string
+  joinedAt: number
+}
+
+type Msg = { id: string; userId: string; username: string; text: string; isSystem: boolean; createdAt: number }
+type TimerState = { mode: "focus" | "break" | "idle"; endsAt: number | null; round: number; focusMin: number; breakMin: number; startedBy: string | null }
+
+export function RoomView({ id }: { id: string }) {
+  const { route, navigate } = useRouter()
+  const { me } = useAuth()
+  const qc = useQueryClient()
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["room", id],
+    queryFn: () => api.get<{ room: any; participants: Participant[]; timer: TimerState }>(`/rooms/${id}`),
+  })
+  const room = data?.room
+
+  const [participants, setParticipants] = useState<Participant[]>([])
+  const [messages, setMessages] = useState<Msg[]>([])
+  const [timer, setTimer] = useState<TimerState>({ mode: "idle", endsAt: null, round: 0, focusMin: 25, breakMin: 5, startedBy: null })
+  const [chatText, setChatText] = useState("")
+  const [tab, setTab] = useState<"chat" | "participants">("chat")
+  const [micOn, setMicOn] = useState(false)
+  const [camOn, setCamOn] = useState(false)
+  const [studyActive, setStudyActive] = useState(false)
+  const [now, setNow] = useState(Date.now())
+  const [left, setLeft] = useState(false)
+
+  const sessionIdRef = useRef<string | null>(null)
+  const esRef = useRef<EventSource | null>(null)
+  const heartbeatRef = useRef<any>(null)
+
+  // Join room on mount: get token, register presence
+  useEffect(() => {
+    if (!me || !room) return
+    let cancelled = false
+
+    async function join() {
+      try {
+        await api.post(`/rooms/${id}/token`, {})
+        await api.post(`/rooms/${id}/presence`, { micOn, camOn })
+        // Connect SSE
+        const token = getToken()
+        const es = new EventSource(`/api/rooms/${id}/events?token=${encodeURIComponent(token || "")}`)
+        esRef.current = es
+        es.addEventListener("presence", (e: any) => setParticipants(JSON.parse(e.data).participants))
+        es.addEventListener("history", (e: any) => setMessages(JSON.parse(e.data).messages))
+        es.addEventListener("message", (e: any) => setMessages((m) => [...m, JSON.parse(e.data).message]))
+        es.addEventListener("timer", (e: any) => setTimer(JSON.parse(e.data).timer))
+        es.onerror = () => { /* auto-reconnect by browser */ }
+        // heartbeat
+        heartbeatRef.current = setInterval(() => {
+          api.post(`/rooms/${id}/presence`, { action: "heartbeat" }).catch(() => {})
+        }, 20000)
+      } catch (e: any) {
+        toast.error(e.message || "Failed to join room")
+        navigate("/rooms")
+      }
+    }
+    join()
+    return () => {
+      cancelled = true
+      esRef.current?.close()
+      if (heartbeatRef.current) clearInterval(heartbeatRef.current)
+      api.post(`/rooms/${id}/presence`, { action: "leave" }).catch(() => {})
+    }
+  }, [me, room?.id, id])
+
+  // tick for countdown
+  useEffect(() => {
+    const i = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(i)
+  }, [])
+
+  const leave = useCallback(async () => {
+    setLeft(true)
+    esRef.current?.close()
+    if (heartbeatRef.current) clearInterval(heartbeatRef.current)
+    // Stop study session if active
+    if (sessionIdRef.current) {
+      try { await api.post(`/study/sessions/${sessionIdRef.current}/stop`) } catch {}
+      sessionIdRef.current = null
+    }
+    await api.post(`/rooms/${id}/presence`, { action: "leave" }).catch(() => {})
+    qc.invalidateQueries({ queryKey: ["rooms"] })
+    navigate("/rooms")
+  }, [id, navigate, qc])
+
+  // auto-stop session if page closing
+  useEffect(() => {
+    const onUnload = () => {
+      if (sessionIdRef.current) {
+        navigator.sendBeacon(`/api/study/sessions/${sessionIdRef.current}/stop`)
+      }
+      api.post(`/rooms/${id}/presence`, { action: "leave" }).catch(() => {})
+    }
+    window.addEventListener("beforeunload", onUnload)
+    return () => window.removeEventListener("beforeunload", onUnload)
+  }, [id])
+
+  const toggleMic = async () => {
+    const v = !micOn
+    setMicOn(v)
+    try { await api.patch(`/rooms/${id}/presence`, { micOn: v }) } catch {}
+  }
+  const toggleCam = async () => {
+    const v = !camOn
+    setCamOn(v)
+    try { await api.patch(`/rooms/${id}/presence`, { camOn: v }) } catch {}
+  }
+
+  const sendMessage = async () => {
+    const text = chatText.trim()
+    if (!text) return
+    setChatText("")
+    try { await api.post(`/rooms/${id}/messages`, { text }) } catch (e: any) { toast.error(e.message) }
+  }
+
+  const startTimer = async (mode: "focus" | "break") => {
+    const minutes = mode === "focus" ? timer.focusMin : timer.breakMin
+    try { await api.post(`/rooms/${id}/timer`, { action: "start", mode, minutes }) } catch (e: any) { toast.error(e.message) }
+  }
+  const stopTimer = async () => {
+    try { await api.post(`/rooms/${id}/timer`, { action: "stop" }) } catch (e: any) { toast.error(e.message) }
+  }
+
+  const startStudy = async () => {
+    try {
+      const res = await api.post<{ sessionId: string }>("/study/sessions", { roomId: id, communityId: room?.community?.id, mode: timer.mode === "focus" ? "pomodoro" : "focus" })
+      sessionIdRef.current = res.sessionId
+      setStudyActive(true)
+      toast.success("Study session started")
+    } catch (e: any) { toast.error(e.message) }
+  }
+  const stopStudy = async () => {
+    if (!sessionIdRef.current) return
+    try {
+      const res = await api.post<{ durationMin: number; xpEarned: number; level: number; streak: number; awardedBadges: any[] }>(`/study/sessions/${sessionIdRef.current}/stop`)
+      sessionIdRef.current = null
+      setStudyActive(false)
+      const xp = res.xpEarned ?? 0
+      const mins = res.durationMin ?? 0
+      toast.success(`Studied ${mins}m · +${xp} XP${res.streak ? ` · 🔥 ${res.streak}d` : ""}`)
+      if (res.awardedBadges?.length) {
+        for (const b of res.awardedBadges) toast(`Badge earned: ${b.name}`, { description: b.description })
+      }
+      qc.invalidateQueries({ queryKey: ["me"] })
+      qc.invalidateQueries({ queryKey: ["goals"] })
+    } catch (e: any) { toast.error(e.message) }
+  }
+
+  if (isLoading) return <div className="p-10 text-center text-muted-foreground">Loading room…</div>
+  if (!room) return <div className="p-10 text-center text-muted-foreground">Room not found. <Link className="text-brand-emerald" to="/rooms">Back to rooms</Link></div>
+  if (left) return null
+
+  const isHost = me?.id === room.owner.id
+  const count = participants.length
+  const remaining = timer.endsAt ? Math.max(0, Math.floor((timer.endsAt - now) / 1000)) : 0
+  const mm = String(Math.floor(remaining / 60)).padStart(2, "0")
+  const ss = String(remaining % 60).padStart(2, "0")
+  const timerPct = timer.endsAt
+    ? 100 - (remaining / (timer.mode === "focus" ? timer.focusMin : timer.breakMin) / 60 * 100)
+    : 0
+
+  return (
+    <div className="flex flex-col h-screen bg-background">
+      {/* Top bar */}
+      <div className="flex items-center justify-between px-4 h-14 border-b bg-card/60 backdrop-blur">
+        <div className="flex items-center gap-3 min-w-0">
+          <Button variant="ghost" size="icon" onClick={leave} className="size-9"><LogOut className="size-4" /></Button>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <LiveDot />
+              <h1 className="font-semibold truncate">{room.name}</h1>
+              {room.isPrivate && <Lock className="size-3.5 text-muted-foreground" />}
+            </div>
+            <p className="text-xs text-muted-foreground truncate">
+              {room.community?.name ?? "Open room"} · {count}/{room.maxParticipants} · {room.focusMode ? "Focus mode" : "Open mode"}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {timer.mode !== "idle" && (
+            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg" style={{ background: timer.mode === "focus" ? "var(--brand-emerald)" : "var(--accent)", color: timer.mode === "focus" ? "white" : "var(--accent-foreground)" }}>
+              {timer.mode === "focus" ? <Timer className="size-4" /> : <Coffee className="size-4" />}
+              <span className="font-mono font-bold tabular-nums">{mm}:{ss}</span>
+              <span className="text-xs opacity-80">round {timer.round}</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Body: stage + side panel */}
+      <div className="flex-1 flex min-h-0">
+        {/* Stage */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {/* Timer bar */}
+          {timer.mode !== "idle" && (
+            <div className="h-1.5 bg-muted">
+              <div className="h-full transition-all" style={{ width: `${timerPct}%`, background: timer.mode === "focus" ? "var(--brand-emerald)" : "var(--accent)" }} />
+            </div>
+          )}
+          <div className="flex-1 overflow-y-auto scroll-thin p-4">
+            {count === 0 ? (
+              <div className="h-full flex items-center justify-center text-muted-foreground">Connecting…</div>
+            ) : (
+              <div className={cn("grid gap-3 mx-auto", gridClass(count))}>
+                {participants.map((p) => (
+                  <ParticipantTile key={p.userId} p={p} isMe={p.userId === me?.id} isHost={p.userId === room.owner.id} />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Timer controls + study */}
+          <div className="border-t bg-card/60 backdrop-blur px-4 py-3">
+            <div className="flex flex-wrap items-center gap-2 justify-between">
+              <div className="flex items-center gap-2">
+                {timer.mode === "idle" ? (
+                  <>
+                    <Button size="sm" onClick={() => startTimer("focus")}><Timer className="size-4" /> Start {timer.focusMin}m focus</Button>
+                    <Button size="sm" variant="outline" onClick={() => startTimer("break")}><Coffee className="size-4" /> Break</Button>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex sm:hidden items-center gap-2 px-2.5 py-1.5 rounded-lg" style={{ background: timer.mode === "focus" ? "var(--brand-emerald)" : "var(--accent)", color: timer.mode === "focus" ? "white" : "var(--accent-foreground)" }}>
+                      <span className="font-mono font-bold text-sm">{mm}:{ss}</span>
+                    </div>
+                    <Button size="sm" variant="outline" onClick={stopTimer}><Square className="size-3.5" /> Stop timer</Button>
+                  </>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {studyActive ? (
+                  <Button size="sm" variant="destructive" onClick={stopStudy}><Square className="size-3.5" /> Stop study</Button>
+                ) : (
+                  <Button size="sm" onClick={startStudy} className="bg-brand-emerald hover:opacity-90"><Play className="size-3.5" /> Start study</Button>
+                )}
+              </div>
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-1.5">
+              {studyActive ? "Study time is being tracked server-side. Stop before you leave to bank your XP." : "Press Start study to begin tracking. Duration & XP are computed by the server."}
+            </p>
+          </div>
+        </div>
+
+        {/* Side panel */}
+        <aside className="w-full sm:w-80 shrink-0 border-l bg-card/40 hidden sm:flex flex-col">
+          <div className="flex border-b">
+            <button onClick={() => setTab("chat")} className={cn("flex-1 py-2.5 text-sm font-medium border-b-2", tab === "chat" ? "border-primary" : "border-transparent text-muted-foreground")}>
+              <MessageSquare className="size-4 inline mr-1.5" /> Chat
+            </button>
+            <button onClick={() => setTab("participants")} className={cn("flex-1 py-2.5 text-sm font-medium border-b-2", tab === "participants" ? "border-primary" : "border-transparent text-muted-foreground")}>
+              <Users className="size-4 inline mr-1.5" /> People ({count})
+            </button>
+          </div>
+
+          {tab === "chat" ? (
+            <>
+              <div className="flex-1 overflow-y-auto scroll-thin p-3 space-y-2 min-h-0">
+                {messages.length === 0 ? (
+                  <p className="text-xs text-muted-foreground text-center py-6">No messages yet. Say hi 👋</p>
+                ) : messages.map((m) => (
+                  <div key={m.id} className={cn("text-sm", m.isSystem ? "text-center text-xs text-muted-foreground py-1" : "")}>
+                    {m.isSystem ? (
+                      <span className="bg-muted rounded px-2 py-0.5">{m.text}</span>
+                    ) : (
+                      <div className="flex gap-2">
+                        <Avatar name={m.username} size={26} />
+                        <div className="min-w-0">
+                          <div className="text-xs text-muted-foreground">{m.username}</div>
+                          <div className="break-words">{m.text}</div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="p-3 border-t flex gap-2">
+                <Input value={chatText} onChange={(e) => setChatText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage() } }} placeholder="Message the room…" maxLength={500} />
+                <Button size="icon" onClick={sendMessage}><Send className="size-4" /></Button>
+              </div>
+            </>
+          ) : (
+            <div className="flex-1 overflow-y-auto scroll-thin p-2 space-y-1">
+              {participants.map((p) => (
+                <div key={p.userId} className="flex items-center gap-2 p-2 rounded-lg hover:bg-accent">
+                  <Avatar name={p.displayName} src={p.avatarUrl} size={32} speaking={p.isSpeaking} />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium truncate flex items-center gap-1">
+                      {p.displayName}
+                      {p.userId === me?.id && <span className="text-[10px] text-muted-foreground">(you)</span>}
+                    </div>
+                    <div className="text-xs text-muted-foreground">@{p.username}</div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {p.userId === room.owner.id && <Crown className="size-3.5 text-accent-foreground" />}
+                    {p.micOn ? <Mic className="size-3.5 text-brand-emerald" /> : <MicOff className="size-3.5 text-muted-foreground" />}
+                    {p.camOn ? <Video className="size-3.5 text-brand-emerald" /> : <VideoOff className="size-3.5 text-muted-foreground" />}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </aside>
+      </div>
+
+      {/* Bottom controls */}
+      <div className="flex items-center justify-center gap-3 h-20 border-t bg-card/80 backdrop-blur" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+        <ControlBtn active={micOn} onClick={toggleMic} on={<Mic className="size-5" />} off={<MicOff className="size-5" />} label={micOn ? "Mute" : "Unmute"} />
+        <ControlBtn active={camOn} onClick={toggleCam} on={<Video className="size-5" />} off={<VideoOff className="size-5" />} label={camOn ? "Stop video" : "Start video"} />
+        <button onClick={leave} className="inline-flex items-center justify-center size-14 rounded-full bg-destructive text-white hover:bg-destructive/90 transition-colors" title="Leave">
+          <PhoneOff className="size-5" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function ParticipantTile({ p, isMe, isHost }: { p: Participant; isMe?: boolean; isHost?: boolean }) {
+  return (
+    <div className={cn("relative aspect-video rounded-xl overflow-hidden border bg-gradient-to-br from-emerald-950/50 to-emerald-800/20 flex items-center justify-center", p.isSpeaking && "speaking-ring border-brand-emerald")}>
+      {p.camOn ? (
+        <div className="absolute inset-0 bg-gradient-to-br from-emerald-600/30 to-amber-500/20 flex items-center justify-center">
+          <Avatar name={p.displayName} src={p.avatarUrl} size={64} speaking={p.isSpeaking} />
+          <span className="absolute top-2 left-2 text-[10px] bg-black/40 text-white px-1.5 py-0.5 rounded">camera on</span>
+        </div>
+      ) : (
+        <Avatar name={p.displayName} src={p.avatarUrl} size={64} speaking={p.isSpeaking} />
+      )}
+      <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
+        <span className="text-xs font-medium text-white bg-black/40 backdrop-blur px-2 py-0.5 rounded inline-flex items-center gap-1">
+          {p.displayName}{isMe && " (you)"}
+        </span>
+        <span className={cn("size-6 rounded-full flex items-center justify-center", p.micOn ? "bg-brand-emerald text-white" : "bg-black/50 text-white")}>
+          {p.micOn ? <Mic className="size-3" /> : <MicOff className="size-3" />}
+        </span>
+      </div>
+      {isHost && <span className="absolute top-2 right-2 text-[10px] bg-amber-500 text-white px-1.5 py-0.5 rounded inline-flex items-center gap-1"><Crown className="size-2.5" /> host</span>}
+    </div>
+  )
+}
+
+function ControlBtn({ active, onClick, on, off, label }: { active: boolean; onClick: () => void; on: React.ReactNode; off: React.ReactNode; label: string }) {
+  return (
+    <button onClick={onClick} className="inline-flex flex-col items-center gap-1" title={label}>
+      <span className={cn("inline-flex items-center justify-center size-12 rounded-full transition-colors", active ? "bg-brand-emerald text-white" : "bg-muted text-muted-foreground hover:bg-accent")}>
+        {active ? on : off}
+      </span>
+      <span className="text-[10px] text-muted-foreground">{label}</span>
+    </button>
+  )
+}
+
+function gridClass(n: number) {
+  if (n <= 1) return "max-w-3xl grid-cols-1"
+  if (n <= 4) return "max-w-4xl grid-cols-2"
+  if (n <= 9) return "max-w-5xl grid-cols-3"
+  if (n <= 16) return "max-w-6xl grid-cols-4"
+  return "max-w-7xl grid-cols-5"
+}
