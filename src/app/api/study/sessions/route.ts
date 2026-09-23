@@ -164,15 +164,14 @@ export async function closeSession(sessionId: string, timezone: string) {
     }
   }
 
-  // ── Increment free-user room-usage tracking ──
-  // If the session was in a room, add the minutes to roomMinutesUsed on the profile.
-  // This is the server-authoritative count that enforces the 60-min free allowance.
-  if (session.roomId && durationMin > 0) {
-    await db.profile.update({
-      where: { userId: session.userId },
-      data: { roomMinutesUsed: { increment: durationMin } },
-    })
-  }
+  // ── Free live-room allowance accounting is now handled by the entitlement
+  // engine (src/lib/entitlement.ts) via the active session on FreeRoomAllowance.
+  // closeActiveLiveRoomSession accrues the live-elapsed seconds into
+  // consumedSeconds. We do NOT increment roomMinutesUsed here anymore — that
+  // field is the legacy lifetime counter and is no longer the source of truth
+  // for the free allowance. Kept for backward-compat display only.
+  void session.roomId
+  void durationMin
 
   return { durationMin, xpEarned: xp, level, oldLevel, leveledUp, streak: streak.current, goal, awardedBadges }
 }

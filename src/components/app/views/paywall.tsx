@@ -22,10 +22,11 @@ export function PaywallView() {
           <div className="size-16 rounded-2xl bg-amber-50 dark:bg-amber-950/30 flex items-center justify-center mx-auto mb-4">
             <Lock className="size-8 text-amber-500" />
           </div>
-          <h1 className="text-2xl md:text-3xl font-bold">Your 60 free minutes are used up</h1>
+          <h1 className="text-2xl md:text-3xl font-bold">Your 30 free minutes are used up</h1>
           <p className="mt-2 text-muted-foreground max-w-md mx-auto">
-            You've used all 60 minutes of your free live study-room access.
+            You've used all 30 minutes of your free live study-room access for today.
             Choose a plan below to continue studying with unlimited room access.
+            Your free allowance resets every 24 hours.
           </p>
           <div className="mt-3 inline-flex items-center gap-2 rounded-lg bg-muted px-3 py-1.5 text-sm">
             <Clock className="size-4 text-muted-foreground" />

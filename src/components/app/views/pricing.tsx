@@ -29,7 +29,7 @@ const PLANS = [
     id: "free", name: "Free", price: 0, period: "forever",
     tagline: "Start studying for free.",
     features: [
-      "60 minutes live-room access (lifetime)",
+      "30 minutes live-room access per day",
       "Join all communities",
       "Solo Pomodoro study (unlimited)",
       "Streaks & badges",
@@ -252,7 +252,7 @@ export function PricingView() {
         </span>
         <h1 className="text-3xl md:text-4xl font-bold">Plans for every aspirant</h1>
         <p className="mt-3 text-muted-foreground">
-          Start free with 60 minutes of live-room access. Upgrade for unlimited study rooms.
+          Start free with 30 minutes of live-room access per day. Upgrade for unlimited study rooms.
         </p>
         {hasPaidAccess && subData?.planExpiresAt && (
           <div className="mt-4 inline-flex items-center gap-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 px-4 py-2 text-sm">
@@ -265,7 +265,7 @@ export function PricingView() {
           <div className="mt-4 inline-flex items-center gap-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 px-4 py-2 text-sm">
             <Clock className="size-4 text-amber-500" />
             <span className="font-medium">{subData.remainingFreeMin} min remaining</span>
-            <span className="text-muted-foreground">of 60 free room minutes</span>
+            <span className="text-muted-foreground">of 30 free room minutes today</span>
           </div>
         )}
       </div>

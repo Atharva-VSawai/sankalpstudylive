@@ -51,6 +51,7 @@ model User {
   referredBy     Referral?       @relation("ReferredUser")
   payments       Payment[]
   subscription   Subscription?
+  freeRoomAllowance FreeRoomAllowance?
   leaderboardRows LeaderboardSnapshot[]
   auditLogs      AuditLog[]      @relation("Actor")
 
@@ -414,6 +415,54 @@ model Subscription {
   updatedAt    DateTime @updatedAt
 
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FREE LIVE-ROOM ALLOWANCE (rolling 24-hour window, per user, global)
+// ─────────────────────────────────────────────────────────────────────────────
+// A free user gets FREE_ROOM_ALLOWANCE_SECONDS (1800 = 30 min) of live study-room
+// access per rolling 24-hour period, shared across ALL live rooms on the platform.
+//
+// The server is the source of truth:
+//   - windowStartedAt: start of the current 24-hour window (UTC). When the
+//     window is older than 24h, the next server request resets it.
+//   - consumedSeconds: total seconds consumed in live rooms during this window.
+//   - activeSessionStartedAt: when the user's CURRENT live-room session began
+//     (null when not in a room). Used to compute live elapsed time on demand
+//     and to prevent multi-tab/double-counting (only one active session per user).
+//   - activeSessionId: the StudySession.id of the current live-room session,
+//     used for idempotent session-close accounting.
+//
+// Paid users bypass this entirely (isPaidPlanActive → unlimited). This model
+// is only relevant for free users, but the row exists for every user so the
+// entitlement check is a single fast upsert/find.
+model FreeRoomAllowance {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  // Start of the current 24-hour rolling window (UTC). Reset server-side
+  // when now - windowStartedAt >= 24h.
+  windowStartedAt       DateTime @default(now())
+  // Total seconds of live-room time consumed in this window (server-computed).
+  consumedSeconds       Int      @default(0)
+  // Opaque token that identifies the CURRENT live-room session for this user.
+  // When set, the user is considered "in a live room" and elapsed time accrues
+  // against the allowance. Only ONE active session per user is allowed; a new
+  // join auto-closes the previous one first (server-side, idempotent).
+  activeSessionStartedAt DateTime?
+  activeSessionId        String?
+  activeRoomId           String?
+  // Heartbeat: last time the client pinged the server while in a room. If the
+  // client disconnects without a clean leave, the server closes the session
+  // at the heartbeat time (capped at the real elapsed time).
+  lastHeartbeatAt       DateTime?
+  // The 5-minute warning is shown once per window. Set when shown, cleared on reset.
+  warningShownAt        DateTime?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([windowStartedAt])
 }
 
 model Payment {

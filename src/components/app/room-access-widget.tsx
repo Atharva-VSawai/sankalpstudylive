@@ -65,7 +65,7 @@ export function RoomAccessWidget() {
             </span>
             <div className="flex-1 min-w-0">
               <div className="text-sm font-semibold">{remaining} min remaining</div>
-              <div className="text-xs text-muted-foreground">of 60 free live-room minutes</div>
+              <div className="text-xs text-muted-foreground">of 30 free live-room minutes today</div>
             </div>
             <Link to="/pricing">
               <Button size="sm" variant="outline">

@@ -6,7 +6,7 @@ import { api, getToken } from "@/lib/api-client"
 import { Avatar } from "@/components/app/brand"
 import { useRouter, Link } from "@/lib/router"
 import { useAuth } from "@/lib/auth-context"
-import { Video, VideoOff, PhoneOff, Play, Pause, Square, RotateCcw, Settings2, ChevronLeft, Coffee, Timer as TimerIcon, Headphones, SkipForward, Pin, PinOff, Maximize2, Minimize2 } from "lucide-react"
+import { Video, VideoOff, PhoneOff, Play, Pause, Square, RotateCcw, Settings2, ChevronLeft, Coffee, Timer as TimerIcon, Headphones, SkipForward, Pin, PinOff, Maximize2, Minimize2, Clock, Lock, Zap, Calendar, Crown, ArrowRight, X } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { AmbientSounds } from "@/components/app/ambient-sounds"
@@ -23,6 +23,14 @@ const PRESETS: { label: string; config: PomodoroConfig }[] = [
   { label: "60 / 10", config: { focusMin: 60, breakMin: 10, longBreakMin: 20, rounds: 4 } },
   { label: "90 / 20", config: { focusMin: 90, breakMin: 20, longBreakMin: 30, rounds: 3 } },
 ]
+
+// Format seconds as MM:SS for the free-time countdown.
+function fmt(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds))
+  const m = Math.floor(s / 60)
+  const r = s % 60
+  return `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`
+}
 
 export function RoomView({ id }: { id: string }) {
   const { me } = useAuth()
@@ -48,6 +56,31 @@ export function RoomView({ id }: { id: string }) {
   const sessionIdRef = useRef<string | null>(null)
   const heartbeatRef = useRef<any>(null)
 
+  // ── Free-allowance entitlement (server-authoritative) ──
+  // The countdown is purely visual; the server is the source of truth. We fetch
+  // the entitlement on join and refresh it via the heartbeat. The displayed
+  // seconds tick locally for smooth UX but the server value overwrites it on
+  // every heartbeat to prevent client-side manipulation from affecting access.
+  type Ent = {
+    isPaid: boolean
+    canJoinLiveRoom: boolean
+    remainingFreeSeconds: number
+    consumedFreeSeconds: number
+    allowanceSeconds: number
+    windowResetsAt: string
+    hasActiveSession: boolean
+    warningShown: boolean
+  }
+  const [entitlement, setEntitlement] = useState<Ent | null>(null)
+  // Local tick: decremented every second for smooth display. Re-synced to the
+  // server value on every heartbeat (every 20s). If a user manipulates this in
+  // DevTools, the next heartbeat overwrites it AND the server still enforces
+  // the real remaining via the token/heartbeat endpoints.
+  const [displayedFreeSeconds, setDisplayedFreeSeconds] = useState<number | null>(null)
+  const [exhausted, setExhausted] = useState(false)
+  const [showWarning, setShowWarning] = useState(false)
+  const warningShownRef = useRef(false)
+
   // ── Pomodoro state ──
   const { data: pomoData } = useQuery({
     queryKey: ["pomodoro", "settings"],
@@ -68,8 +101,31 @@ export function RoomView({ id }: { id: string }) {
     async function connect() {
       try {
         setError(null)
-        // 1. Request token from Sankalp backend
-        const tokenRes = await api.post<{ token: string; serverUrl: string; roomName: string }>("/rooms/" + id + "/token", {})
+        // 1. Request token from Sankalp backend. The server is the source of
+        // truth for the free allowance — it refuses to issue a token when the
+        // global 30-min/24h allowance is exhausted. The token response also
+        // includes the server-authoritative entitlement so the client can
+        // render the countdown.
+        type TokenRes = {
+          token: string
+          serverUrl: string
+          roomName: string
+          entitlement: Ent & { activeSessionId: string | null }
+          hasPaidPlan: boolean
+        }
+        const tokenRes = await api.post<TokenRes>("/rooms/" + id + "/token", {})
+
+        // The token endpoint creates the server-side StudySession and registers
+        // it as the active live-room session. We use that sessionId for the
+        // stop-on-leave flow. No separate /study/sessions call is needed.
+        sessionIdRef.current = tokenRes.entitlement?.activeSessionId ?? null
+
+        // Seed the entitlement + local countdown from the SERVER value.
+        setEntitlement(tokenRes.entitlement)
+        if (!tokenRes.hasPaidPlan) {
+          setDisplayedFreeSeconds(tokenRes.entitlement.remainingFreeSeconds)
+          warningShownRef.current = tokenRes.entitlement.warningShown
+        }
 
         // 2. Create LiveKit Room + connect
         const lkRoom = new Room({
@@ -100,7 +156,7 @@ export function RoomView({ id }: { id: string }) {
         lkRoom.on(RoomEvent.ConnectionStateChanged, (state) => {
           setConnectionState(state)
           if (state === ConnectionState.Disconnected) {
-            // End study session
+            // End study session (accrues live-room time server-side)
             if (sessionIdRef.current) {
               api.post("/study/sessions/" + sessionIdRef.current + "/stop").catch(() => {})
               sessionIdRef.current = null
@@ -111,32 +167,41 @@ export function RoomView({ id }: { id: string }) {
         lkRoom.on(RoomEvent.Reconnected, () => setConnectionState(ConnectionState.Connected))
 
         // Re-sync connection state AFTER all listeners are registered.
-        // The connecting -> connected transition fires internally during
-        // await lkRoom.connect() — BEFORE the ConnectionStateChanged listener
-        // above was registered. Without this re-sync, React state can get
-        // stuck at "Connecting" even though the LiveKit Room is fully connected.
-        // NOTE: livekit-client v2.x uses Room.state (not Room.connectionState).
         setConnectionState(lkRoom.state)
 
-        // 5. Start server-side study session
-        try {
-          const studyRes = await api.post<{ sessionId: string }>("/study/sessions", { roomId: id, communityId: room?.community?.id, mode: "pomodoro" })
-          sessionIdRef.current = studyRes.sessionId
-        } catch (e: any) {
-          // Don't fail the whole join if study session fails
-          console.error("[room] study session start failed:", e.message)
-        }
-
-        // 6. Heartbeat for server-side presence
-        heartbeatRef.current = setInterval(() => {
-          api.post("/rooms/" + id + "/presence", { action: "heartbeat" }).catch(() => {})
+        // 5. Heartbeat: pings the server every 20s. The server recomputes the
+        // entitlement and returns it so the client can re-sync its countdown.
+        // If the server reports exhausted=true (free allowance hit 0), the
+        // client disconnects from LiveKit and shows the purchase screen — this
+        // is the server-authoritative "00:00 closes the room" enforcement.
+        heartbeatRef.current = setInterval(async () => {
+          try {
+            const hb = await api.post<{ exhausted?: boolean } & Ent>("/rooms/" + id + "/heartbeat", {})
+            setEntitlement(hb)
+            if (!hb.isPaid) {
+              setDisplayedFreeSeconds(hb.remainingFreeSeconds)
+            }
+            if (hb.exhausted) {
+              // Server says the free allowance is exhausted. Close the room.
+              setExhausted(true)
+              if (lkRoomRef.current) {
+                lkRoomRef.current.disconnect()
+                lkRoomRef.current = null
+              }
+              if (heartbeatRef.current) clearInterval(heartbeatRef.current)
+              if (sessionIdRef.current) {
+                api.post("/study/sessions/" + sessionIdRef.current + "/stop").catch(() => {})
+                sessionIdRef.current = null
+              }
+            }
+          } catch {}
         }, 20000)
 
         toast.success("Connected to study room")
       } catch (e: any) {
         if (e?.code === "FREE_ALLOWANCE_EXHAUSTED" || e?.status === 403) {
-          toast.error("Your 60 free minutes are used up. Upgrade for unlimited access.")
-          navigate("/paywall", { replace: true })
+          toast.error("Your 30 minutes of free study time are over.")
+          setExhausted(true)
         } else {
           setError(e.message || "Failed to connect to room")
           toast.error(e.message || "Failed to connect to room")
@@ -177,6 +242,46 @@ export function RoomView({ id }: { id: string }) {
     const i = setInterval(() => setNow(Date.now()), 500)
     return () => clearInterval(i)
   }, [])
+
+  // ── Free-allowance countdown tick (visual only, server is authoritative) ──
+  // Decrements the displayed seconds every 1s for smooth UX. The server value
+  // (from the heartbeat every 20s) overwrites this, so manipulating it in
+  // DevTools has no effect on the real entitlement.
+  useEffect(() => {
+    if (entitlement?.isPaid) return
+    if (displayedFreeSeconds === null) return
+    const i = setInterval(() => {
+      setDisplayedFreeSeconds((s) => (s === null ? s : Math.max(0, s - 1)))
+    }, 1000)
+    return () => clearInterval(i)
+  }, [entitlement?.isPaid, displayedFreeSeconds === null])
+
+  // ── 5-minute warning (shown ONCE per allowance window) ──
+  // Triggers when the displayed countdown crosses 5:00 and the server hasn't
+  // already marked the warning as shown for this window. After showing, we
+  // mark it on the server so it doesn't reappear on refresh/rejoin.
+  useEffect(() => {
+    if (!entitlement || entitlement.isPaid) return
+    if (warningShownRef.current) return
+    if (displayedFreeSeconds === null) return
+    if (displayedFreeSeconds > 0 && displayedFreeSeconds <= 300) {
+      setShowWarning(true)
+      warningShownRef.current = true
+      // Tell the server the warning was shown for this window (idempotent).
+      api.post("/entitlement/warning-shown", {}).catch(() => {})
+    }
+  }, [displayedFreeSeconds, entitlement])
+
+  // ── At 00:00, flag exhausted so the purchase overlay shows ──
+  // The heartbeat server-side enforcement (exhausted=true) is the real close;
+  // this local check just shows the overlay immediately without waiting up to
+  // 20s for the next heartbeat.
+  useEffect(() => {
+    if (!entitlement || entitlement.isPaid) return
+    if (displayedFreeSeconds === 0 && !exhausted) {
+      setExhausted(true)
+    }
+  }, [displayedFreeSeconds, entitlement, exhausted])
 
   // ── Leave room ──
   const leave = useCallback(async () => {
@@ -272,9 +377,28 @@ export function RoomView({ id }: { id: string }) {
     <div className="flex flex-col h-screen bg-background">
       {/* ── Minimal header ── */}
       <div className="flex items-center justify-between px-4 h-14 border-b bg-card/60 backdrop-blur">
-        <button onClick={leave} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-          <ChevronLeft className="size-4" /> Back
-        </button>
+        <div className="flex items-center gap-3">
+          <button onClick={leave} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+            <ChevronLeft className="size-4" /> Back
+          </button>
+          {/* ── Free-user countdown (top-left, server-authoritative) ── */}
+          {entitlement && !entitlement.isPaid && displayedFreeSeconds !== null && (
+            <span
+              className={cn(
+                "inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-mono tabular-nums font-semibold",
+                displayedFreeSeconds <= 60
+                  ? "bg-destructive/15 text-destructive"
+                  : displayedFreeSeconds <= 300
+                  ? "bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400"
+                  : "bg-muted text-muted-foreground"
+              )}
+              title={`Free study time: ${fmt(displayedFreeSeconds)} · resets ${new Date(entitlement.windowResetsAt).toLocaleString("en-IN")}`}
+            >
+              <Clock className="size-3.5" />
+              Free study time: {fmt(displayedFreeSeconds)}
+            </span>
+          )}
+        </div>
         <div className="text-center min-w-0 flex-1 px-2">
           <h1 className="font-semibold truncate text-sm md:text-base">{room.name}</h1>
           <p className="text-[10px] text-muted-foreground">
@@ -364,6 +488,25 @@ export function RoomView({ id }: { id: string }) {
       {showAmbient && <div className="absolute bottom-24 right-3 w-56 z-30"><AmbientSounds compact /></div>}
       {/* ── Pomodoro settings dialog ── */}
       {showSettings && <PomodoroSettings config={config} onSave={saveConfig} onClose={() => setShowSettings(false)} />}
+
+      {/* ── 5-minute free-allowance warning (shown ONCE per window) ── */}
+      {showWarning && !entitlement?.isPaid && (
+        <FreeWarningModal
+          remaining={displayedFreeSeconds ?? 0}
+          resetsAt={entitlement?.windowResetsAt}
+          onClose={() => setShowWarning(false)}
+          onUpgrade={() => { setShowWarning(false); navigate("/pricing") }}
+        />
+      )}
+
+      {/* ── Exhausted free-allowance purchase overlay (server-enforced) ── */}
+      {exhausted && !entitlement?.isPaid && (
+        <ExhaustedOverlay
+          resetsAt={entitlement?.windowResetsAt}
+          onPlan={() => navigate("/pricing")}
+          onSolo={() => navigate("/study")}
+        />
+      )}
     </div>
   )
 }
@@ -629,3 +772,87 @@ function PomodoroSettings({ config, onSave, onClose }: { config: PomodoroConfig;
 
 // ── Chime ──
 function playChime() { try { const ctx = new (window.AudioContext || (window as any).webkitAudioContext)(); const o = ctx.createOscillator(); const g = ctx.createGain(); o.connect(g); g.connect(ctx.destination); o.frequency.value = 660; o.type = "sine"; g.gain.setValueAtTime(0.0001, ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.15, ctx.currentTime + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.8); o.start(); o.stop(ctx.currentTime + 0.8) } catch {} }
+
+// ── 5-minute free-allowance warning modal ──
+// Shown ONCE per 24h window when the countdown crosses 5:00. The server marks
+// warningShown so it doesn't reappear on refresh/rejoin. Closing it doesn't
+// re-trigger it (warningShownRef prevents local re-show too).
+function FreeWarningModal({ remaining, resetsAt, onClose, onUpgrade }: {
+  remaining: number
+  resetsAt?: string
+  onClose: () => void
+  onUpgrade: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-card rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between">
+          <div className="size-12 rounded-xl bg-amber-50 dark:bg-amber-950/30 flex items-center justify-center">
+            <Clock className="size-6 text-amber-500" />
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground" aria-label="Close">
+            <X className="size-5" />
+          </button>
+        </div>
+        <h3 className="text-lg font-bold">5 minutes of free study time remaining today</h3>
+        <p className="text-sm text-muted-foreground">
+          Continue studying with a paid plan. Your free allowance resets in{" "}
+          {resetsAt ? new Date(resetsAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "24 hours"}.
+        </p>
+        <div className="rounded-lg bg-muted px-3 py-2 text-center">
+          <span className="font-mono tabular-nums text-2xl font-bold text-amber-600 dark:text-amber-400">{fmt(remaining)}</span>
+          <span className="block text-xs text-muted-foreground mt-1">remaining today</span>
+        </div>
+        <div className="flex flex-col gap-2">
+          <button onClick={onUpgrade} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-brand-emerald text-white text-sm font-medium hover:opacity-90">
+            <Zap className="size-4" /> Get Daily Pass — ₹14 / day
+          </button>
+          <button onClick={onUpgrade} className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium hover:bg-accent">
+            View Other Plans
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Exhausted free-allowance purchase overlay ──
+// Shown when the server reports the free allowance is exhausted (00:00). The
+// room has already been closed by the server (heartbeat returned exhausted=true
+// or the token request was refused). The user must upgrade or wait for the
+// 24h reset. This overlay blocks the room view until dismissed via navigation.
+function ExhaustedOverlay({ resetsAt, onPlan, onSolo }: {
+  resetsAt?: string
+  onPlan: () => void
+  onSolo: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur flex items-center justify-center p-4">
+      <div className="w-full max-w-md text-center space-y-5">
+        <div className="size-16 rounded-2xl bg-amber-50 dark:bg-amber-950/30 flex items-center justify-center mx-auto">
+          <Lock className="size-8 text-amber-500" />
+        </div>
+        <div className="space-y-2">
+          <h1 className="text-2xl md:text-3xl font-bold">Your 30 minutes of free study time are over.</h1>
+          <p className="text-muted-foreground">Get back to your study room with a plan.</p>
+          {resetsAt && (
+            <p className="text-xs text-muted-foreground">
+              Free access resets {new Date(resetsAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}.
+            </p>
+          )}
+        </div>
+        <div className="flex flex-col gap-2">
+          <button onClick={onPlan} className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-brand-emerald text-white text-sm font-medium hover:opacity-90">
+            <Zap className="size-4" /> Get Daily Pass — ₹14 / day
+          </button>
+          <button onClick={onPlan} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border text-sm font-medium hover:bg-accent">
+            <ArrowRight className="size-4" /> View Other Plans
+          </button>
+          <button onClick={onSolo} className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground">
+            Continue with Solo Study (free) →
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}

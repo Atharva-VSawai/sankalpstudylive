@@ -3,21 +3,23 @@ import { db } from "@/lib/db"
 import { ok, unauthorized, badRequest, getAuth } from "@/lib/api"
 import {
   PLANS, PlanId, isValidPlan, isPaidPlanActive, computeExpiry, computeRenewal,
-  FREE_ALLOWANCE_MIN,
 } from "@/lib/pricing"
+import { getEntitlement } from "@/lib/entitlement"
 
 // GET /api/subscriptions — current user's subscription + free-room usage
+// Backed by the global free-allowance engine (30 min / rolling 24h).
 export async function GET(req: NextRequest) {
   const ctx = await getAuth(req)
   if (!ctx) return unauthorized()
-  const [sub, profile] = await Promise.all([
+  const [sub, ent] = await Promise.all([
     db.subscription.findUnique({ where: { userId: ctx.userId } }),
-    db.profile.findUnique({ where: { userId: ctx.userId }, select: { roomMinutesUsed: true } }),
+    getEntitlement(ctx.userId),
   ])
 
-  const paid = isPaidPlanActive(sub)
-  const roomMinutesUsed = profile?.roomMinutesUsed ?? 0
-  const remainingFreeMin = Math.max(0, FREE_ALLOWANCE_MIN - roomMinutesUsed)
+  const paid = ent.isPaid
+  // Backward-compat: minute-resolution fields derived from the new entitlement.
+  const remainingFreeMin = paid ? null : Math.ceil(ent.remainingFreeSeconds / 60)
+  const roomMinutesUsed = paid ? 0 : Math.floor(ent.consumedFreeSeconds / 60)
 
   return ok({
     subscription: sub ?? { plan: "free", status: "active", expiresAt: null, renewsAt: null },
@@ -25,9 +27,19 @@ export async function GET(req: NextRequest) {
     hasPaidAccess: paid,
     planName: sub ? PLANS[sub.plan as PlanId]?.name ?? "Free" : "Free",
     planExpiresAt: sub?.expiresAt ?? null,
+    // Canonical, server-authoritative fields:
+    isPaid: paid,
+    canJoinLiveRoom: ent.canJoinLiveRoom,
+    remainingFreeSeconds: paid ? 0 : ent.remainingFreeSeconds,
+    consumedFreeSeconds: paid ? 0 : ent.consumedFreeSeconds,
+    allowanceSeconds: ent.allowanceSeconds,
+    windowStartedAt: ent.windowStartedAt.toISOString(),
+    windowResetsAt: ent.windowResetsAt.toISOString(),
+    hasActiveSession: ent.hasActiveSession,
+    // Backward-compat (minute-resolution) fields:
     roomMinutesUsed,
-    freeAllowanceMin: FREE_ALLOWANCE_MIN,
-    remainingFreeMin: paid ? null : remainingFreeMin, // null when paid (unlimited)
+    freeAllowanceMin: Math.ceil(ent.allowanceSeconds / 60),
+    remainingFreeMin, // null when paid (unlimited)
   })
 }
 

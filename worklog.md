@@ -156,3 +156,43 @@ Stage Summary:
 - Pin/unpin feature: hover any tile → click pin button → that participant fills the stage, others become a thumbnail strip. Click unpin (or pin another thumbnail) to return to grid. Works with multiple participants.
 - Multi-user mutual video visibility verified: 2 participants, both cameras on, each sees the other's video.
 - No LiveKit API misuse: uses Room.state, ParticipantEvent, getTrackPublication, track.attach/detach correctly for livekit-client v2.22.3.
+
+---
+Task ID: FREE-ALLOWANCE-005
+Agent: general-purpose (global 30-min/24h free-room allowance)
+Task: Replace the old 60-min lifetime free-room allowance with a global, server-authoritative 30-min per rolling 24h allowance, shared across ALL live rooms, with server-side exhaustion enforcement, 5-min warning, and purchase CTAs.
+
+Work Log:
+- Inspected existing implementation: prisma/schema.prisma (Profile.roomMinutesUsed = lifetime counter), pricing.ts (FREE_ALLOWANCE_MIN=60), room token endpoint, study session closeSession, subscriptions/usage routes, room.tsx, paywall, pricing, room-access-widget. Found the old 60-min lifetime logic in ~10 files.
+- Schema change (smallest possible): added a new FreeRoomAllowance model (per-user, unique) with windowStartedAt, consumedSeconds, activeSessionStartedAt, activeSessionId, activeRoomId, lastHeartbeatAt, warningShownAt. Added the relation on User. Pushed to DB via `bun run db:push`. Did NOT remove Profile.roomMinutesUsed (kept for backward-compat display; it's no longer the source of truth).
+- Created src/lib/entitlement.ts — the single server-authoritative entitlement engine. Exports: getEntitlement, canJoinLiveRoom, beginLiveRoomSession, closeActiveLiveRoomSession, heartbeatLiveRoomSession, markWarningShown, entitlementToResponse. Server computes all time from its own clocks; never trusts client-supplied durations/remaining/timestamps. The 24h reset happens server-side on the next read after the window expires.
+- Updated src/lib/pricing.ts: FREE_ROOM_ALLOWANCE_SECONDS=1800, FREE_ROOM_WINDOW_MS=24h. Kept FREE_ALLOWANCE_MIN=30 as a legacy alias.
+- Rewrote src/app/api/rooms/[id]/token/route.ts: now calls canJoinLiveRoom() and REFUSES the token (403 FREE_ALLOWANCE_EXHAUSTED) when the global allowance is 0 — no LiveKit token is issued. Creates the StudySession server-side (no separate /study/sessions call from the client), calls beginLiveRoomSession() which auto-closes any prior active session (multi-tab protection: only ONE active session per user; the previous tab's session is accrued and ended). Returns the entitlement in the response.
+- Updated src/app/api/study/sessions/[id]/stop/route.ts: calls closeActiveLiveRoomSession() to accrue live-elapsed seconds into consumedSeconds. The legacy roomMinutesUsed increment in closeSession() was removed (replaced with a void + comment).
+- Created src/app/api/rooms/[id]/heartbeat/route.ts: the client pings this every 20s. The server updates lastHeartbeatAt, recomputes the entitlement, and if free+remaining<=0, closes the active session and returns exhausted=true so the client disconnects from LiveKit. This is the server-authoritative "00:00 closes the room" enforcement.
+- Created src/app/api/entitlement/route.ts (GET) — returns the server-authoritative entitlement for the client to render the countdown.
+- Created src/app/api/entitlement/warning-shown/route.ts (POST) — marks the 5-min warning as shown for this window (idempotent; clears on 24h reset).
+- Updated src/app/api/rooms/usage/route.ts and src/app/api/subscriptions/route.ts GET to return the new canonical fields (remainingFreeSeconds, consumedFreeSeconds, allowanceSeconds, windowStartedAt, windowResetsAt, isPaid, canJoinLiveRoom, hasActiveSession) plus backward-compat minute-resolution fields derived from the new entitlement.
+- Updated src/lib/api.ts forbidden() to accept an optional `extra` payload (used to return the entitlement with the FREE_ALLOWANCE_EXHAUSTED error).
+- Frontend (src/components/app/views/room.tsx): added entitlement + displayedFreeSeconds state. The token response seeds the countdown from the SERVER value. A 1s interval ticks the displayed value down for smooth UX. The 20s heartbeat re-syncs to the server value (overwriting any client manipulation). At <=5:00 the FreeWarningModal shows once (warningShownRef + server markWarningShown prevent re-show). At 00:00 the ExhaustedOverlay shows. If the heartbeat returns exhausted=true, the client disconnects from LiveKit. Paid users see no countdown. Removed the redundant /study/sessions call (token endpoint now creates the session). Added FreeWarningModal and ExhaustedOverlay components with the exact CTAs requested (Get Daily Pass ₹14/day, View Other Plans, Continue with Solo Study).
+- Removed old 60-min UI text: paywall ("60 free minutes" → "30 free minutes... resets every 24 hours"), pricing ("60 minutes live-room access (lifetime)" → "30 minutes live-room access per day"), room-access-widget ("of 60 free live-room minutes" → "of 30 free live-room minutes today").
+- Multi-tab/concurrency protection: FreeRoomAllowance is @unique on userId (only one row). beginLiveRoomSession closes any prior active session first (accrual). Only ONE activeSessionId per user. If Tab A and Tab B both try to join, Tab B's join auto-closes Tab A's session — Tab A's next heartbeat will get exhausted=false but its LiveKit connection will be stale; the server's authoritative consumedSeconds already accounts for the real elapsed time. Two tabs cannot multiply the allowance.
+- Verified via agent-browser: admin joins room → top-left countdown shows "Free study time: 29:35" and ticks down. VLM confirmed the countdown is visible.
+- Security tests (all PASSED):
+  1. Send fake `remainingFreeSeconds: 99999` in token request → ignored, token issued based on server count.
+  2. Send fake `duration: 0` to stop endpoint → ignored, server computes its own durationMin.
+  3. Entitlement after stop → 1799s (1s real time consumed), fake payload had no effect.
+  4. Directly call token for a DIFFERENT room → uses the SAME global allowance (no per-room bypass).
+  5. Set consumedSeconds=1800 via DB (simulating exhaustion) → token endpoint refuses with FREE_ALLOWANCE_EXHAUSTED (403), no LiveKit token issued. Entitlement shows canJoinLiveRoom=false, remainingFreeSeconds=0.
+  6. Browser join when exhausted → ExhaustedOverlay shows "Your 30 minutes of free study time are over." with Get Daily Pass ₹14/day + View Other Plans + Solo Study. VLM confirmed.
+- `bun run lint` passes clean. Zero dev.log errors.
+
+Stage Summary:
+- NEW: global 30-min/rolling-24h free live-room allowance, per user, shared across ALL rooms. Server-authoritative via src/lib/entitlement.ts + FreeRoomAllowance table.
+- OLD 60-min lifetime logic REMOVED from: pricing.ts (FREE_ALLOWANCE_MIN now 30, new constants), token route (now uses canJoinLiveRoom), closeSession (no more roomMinutesUsed increment), subscriptions/usage routes (now return entitlement fields), UI text (paywall/pricing/widget all say 30 min/day).
+- 00:00 closes the room: heartbeat returns exhausted=true → client disconnects. Token endpoint refuses re-join. No room access until 24h reset or paid plan.
+- 5-min warning: shown ONCE per window (warningShownAt flag, server-side). FreeWarningModal with Get Daily Pass ₹14/day + View Other Plans.
+- 24h reset: server-side, on the next read after windowStartedAt + 24h. No client timer, no logout/login reset.
+- Paid override: isPaidPlanActive bypasses the allowance entirely (no countdown, no warning, no forced close).
+- Multi-tab: one active session per user; new join auto-closes the prior. No allowance multiplication.
+- Android-ready: the entitlement + token + heartbeat + warning-shown endpoints are the contract; the server never accepts client-supplied time values as authoritative.

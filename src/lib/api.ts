@@ -76,8 +76,10 @@ export function unauthorized() {
   return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Authentication required" } }, { status: 401 })
 }
 
-export function forbidden(message = "You don't have permission to do that") {
-  return NextResponse.json({ error: { code: "FORBIDDEN", message } }, { status: 403 })
+export function forbidden(message = "You don't have permission to do that", code = "FORBIDDEN", extra?: Record<string, unknown>) {
+  const body: Record<string, unknown> = { error: { code, message } }
+  if (extra) body.error = { ...body.error, ...extra }
+  return NextResponse.json(body, { status: 403 })
 }
 
 export function notFound(message = "Resource not found") {
