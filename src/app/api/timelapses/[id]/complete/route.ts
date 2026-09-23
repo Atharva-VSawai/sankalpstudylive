@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server"
 import { db } from "@/lib/db"
 import { ok, unauthorized, notFound, badRequest, getAuth } from "@/lib/api"
-import { uploadTimelapseVideo, uploadTimelapseThumb, timelapseVideoPath, timelapseThumbPath } from "@/lib/timelapse-storage"
+import { uploadTimelapseVideo, uploadTimelapseThumb, timelapseVideoPath, timelapseThumbPath, timelapseBucketExists, isStorageConfigured } from "@/lib/timelapse-storage"
 
 // POST /api/timelapses/[id]/complete
 // Receives the final compressed timelapse video (multipart/form-data) + an
@@ -27,6 +27,30 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   // Ownership check
   const timelapse = await db.timelapse.findUnique({ where: { id } })
   if (!timelapse || timelapse.userId !== ctx.userId) return notFound("Timelapse not found")
+
+  // ── Check Storage is fully configured BEFORE parsing the body ──
+  // If the service-role key isn't set OR the bucket doesn't exist, fail fast
+  // with a clear actionable error instead of parsing a large upload only to
+  // fail with a confusing message.
+  const cfg = isStorageConfigured()
+  if (!cfg.ok) {
+    await db.timelapse.update({
+      where: { id },
+      data: { status: "FAILED", failureReason: cfg.reason },
+    })
+    return badRequest(cfg.reason ?? "Storage not configured", "STORAGE_NOT_CONFIGURED")
+  }
+  const bucketReady = await timelapseBucketExists()
+  if (!bucketReady) {
+    await db.timelapse.update({
+      where: { id },
+      data: { status: "FAILED", failureReason: "Storage bucket 'timelapses' not found. Create a private bucket named 'timelapses' in the Supabase Dashboard → Storage." },
+    })
+    return badRequest(
+      "Storage bucket 'timelapses' not found. Create a private bucket named 'timelapses' in the Supabase Dashboard → Storage, then try again.",
+      "BUCKET_NOT_FOUND"
+    )
+  }
 
   // Parse multipart form (video + optional thumb).
   let video: Buffer | null = null

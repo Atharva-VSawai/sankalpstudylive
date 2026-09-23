@@ -416,10 +416,26 @@ export function RoomView({ id }: { id: string }) {
         headers: { Authorization: `Bearer ${getToken()}` },
         body: form,
       })
-      if (!res.ok) throw new Error("Upload failed")
-      toast.success("Study timelapse saved.")
+      if (!res.ok) {
+        // Parse the error so we can show a clear actionable message (e.g. the
+        // Supabase service-role key is missing, or the bucket doesn't exist).
+        const errBody = await res.json().catch(() => null)
+        const errMsg = errBody?.error?.message || "Upload failed"
+        const errCode = errBody?.error?.code || "UPLOAD_FAILED"
+        if (errCode === "STORAGE_NOT_CONFIGURED" || errCode === "BUCKET_NOT_FOUND") {
+          toast.error(errMsg, { duration: 8000 })
+        } else {
+          toast.error(errMsg)
+        }
+        throw new Error(errMsg)
+      }
+      toast.success("Study timelapse saved to your profile.")
     } catch (e: any) {
-      toast.error("Could not save timelapse")
+      // Already toasted above if it was an API error; avoid double-toast for
+      // network errors.
+      if (!e?.message?.includes("Upload") && !e?.message?.includes("Storage") && !e?.message?.includes("bucket")) {
+        toast.error("Could not save timelapse. Please try again.")
+      }
     } finally {
       setTimelapseUploading(false)
     }
@@ -523,6 +539,35 @@ export function RoomView({ id }: { id: string }) {
       toast.error("Camera permission denied. Please allow camera access in your browser.")
     }
   }
+
+  // ── Timelapse toggle (on/off button in the controls bar) ──
+  // When turning ON: starts the timelapse capture AND auto-turns-on the camera
+  // (so the first timelapse has video to record). When turning OFF mid-session:
+  // stops the capture and saves the timelapse immediately (doesn't wait for
+  // room exit). The user can turn it back on later for another timelapse.
+  const toggleTimelapse = useCallback(async () => {
+    if (timelapseRecording) {
+      // ── Turning OFF: stop + save immediately ──
+      finalizeTimelapseAndUpload()
+      toast.info("Saving timelapse…")
+    } else {
+      // ── Turning ON: start capture + auto-enable camera ──
+      // If the camera is off, turn it on first so the timelapse has video.
+      if (!camOn && lkRoomRef.current) {
+        try {
+          await lkRoomRef.current.localParticipant.setCameraEnabled(true)
+          setCamOn(true)
+        } catch {
+          toast.error("Camera permission denied. Please allow camera access in your browser.")
+          return
+        }
+      }
+      // Reset the prompt-shown flag so startTimelapse doesn't get blocked by
+      // a stale prompt state.
+      setShowTimelapsePrompt(false)
+      await startTimelapse()
+    }
+  }, [timelapseRecording, camOn, finalizeTimelapseAndUpload, startTimelapse])
 
   // ── Pomodoro: timestamp-based remaining calculation ──
   const remainingMs = useMemo((): number => {
@@ -683,6 +728,7 @@ export function RoomView({ id }: { id: string }) {
         </div>
         <div className="flex items-center justify-center gap-3 py-2 border-t" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
           <ControlBtn active={camOn} onClick={toggleCam} on={<Video className="size-5" />} off={<VideoOff className="size-5" />} label={camOn ? "Stop video" : "Camera"} />
+          <ControlBtn active={timelapseRecording} onClick={toggleTimelapse} on={<Film className="size-5" />} off={<Film className="size-5" />} label={timelapseRecording ? "Stop timelapse" : "Timelapse"} />
           <ControlBtn active={showAmbient} onClick={() => setShowAmbient(!showAmbient)} on={<Headphones className="size-5" />} off={<Headphones className="size-5" />} label="Ambient" />
           <button onClick={leave} className="inline-flex items-center justify-center size-11 rounded-full bg-destructive text-white hover:bg-destructive/90 transition-colors" title="Leave room"><PhoneOff className="size-5" /></button>
         </div>

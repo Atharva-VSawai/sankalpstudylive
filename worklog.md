@@ -327,3 +327,26 @@ Stage Summary:
 - Supabase OFF (no env vars): Sankalp local email/password auth works fully (login + signup). Google button shows a clear "configure Supabase" error.
 - Supabase ON (env vars set): Supabase email/password login/signup work (with Sankalp fallback for seeded users + email-confirmation-required case). Google OAuth works automatically when the provider is enabled in Supabase Dashboard (no code change). First Google login auto-creates the user in our DB via /auth/sync.
 - No code changes needed to switch between modes — just set/unset NEXT_PUBLIC_SUPABASE_URL + NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY.
+
+---
+Task ID: TIMELAPSE-TOGGLE-FIX-011
+Agent: general-purpose (timelapse toggle button + storage fix)
+Task: Add a timelapse on/off toggle button to the room controls, auto-enable camera on first timelapse, stop+save on toggle off, and fix the "could not save timelapse" error (missing SUPABASE_SERVICE_ROLE_KEY).
+
+Work Log:
+- Root cause of "could not save timelapse": SUPABASE_SERVICE_ROLE_KEY was missing from .env. Without it, createServerClient falls back to the publishable key which is subject to Supabase Storage RLS → listBuckets returns empty, upload fails with "Bucket not found". The service role key bypasses RLS.
+- Added SUPABASE_SERVICE_ROLE_KEY to .env (value provided by user, stored only in .env, chmod 600, never printed/logged/committed). The createServerClient in supabase.ts already prefers the service key when present.
+- Updated src/lib/timelapse-storage.ts: added isStorageConfigured() check (returns false if the service key is missing, with a clear actionable reason). Updated timelapseBucketExists() to return false when the service key is missing (so the complete route gives the right error).
+- Updated src/app/api/timelapses/[id]/complete/route.ts: checks isStorageConfigured() BEFORE parsing the body, returns a clear STORAGE_NOT_CONFIGURED error with the actionable message "SUPABASE_SERVICE_ROLE_KEY is not set. Add it to your environment (Supabase Dashboard → Project Settings → API → service_role key)."
+- Created the `timelapses` private bucket via direct SQL (INSERT INTO storage.buckets) since the JS SDK can't create buckets due to RLS on storage.buckets. The bucket is private (public=false), 20 MB file cap, allowed MIME types: video/webm, image/webp, image/jpeg.
+- Added a Timelapse toggle button to the room controls bar (between Camera and Ambient). Uses the Film icon. When ON: shows "Stop timelapse" (active state). When OFF: shows "Timelapse".
+- toggleTimelapse function: when turning ON, auto-enables the camera if it's off (so the first timelapse has video to record), then starts the capture. When turning OFF mid-session, calls finalizeTimelapseAndUpload() which stops the capture and uploads immediately (doesn't wait for room exit). The user can toggle on/off multiple times for multiple timelapses in one session.
+- Updated uploadTimelapse error handling: parses the error JSON from the complete endpoint and shows the actual error message (e.g. "SUPABASE_SERVICE_ROLE_KEY is not set...") in the toast for 8 seconds (longer for config errors). Success toast says "Study timelapse saved to your profile."
+- Verified end-to-end via agent-browser: admin joins room → clicks Timelapse toggle → camera auto-enables → "Timelapse recording" indicator shows → wait 10s → clicks "Stop timelapse" → POST /api/timelapses/create 200 → POST /api/timelapses/[id]/complete 200 → DB shows status=READY, fileSize=35231 bytes, storagePath set → Profile → Timelapses shows the tile with thumbnail + Play button → clicking Play opens a video player with a signed URL (5-min expiry) → Close works.
+- `bun run lint` passes clean. `bun run build` succeeds.
+
+Stage Summary:
+- Timelapse toggle button: in the room controls bar (Camera | Timelapse | Ambient | Leave). Toggles on/off. On = start capture + auto-enable camera. Off = stop + save immediately.
+- Storage fix: SUPABASE_SERVICE_ROLE_KEY added → service role bypasses RLS → bucket listing, upload, signed URLs all work.
+- Error messages: clear actionable errors for missing service key ("add it to Supabase Dashboard → Settings → API") and missing bucket ("create a private bucket named 'timelapses' in Supabase Dashboard → Storage").
+- Full flow verified: toggle on → camera auto-on → record → toggle off → upload → READY in DB → Profile shows thumbnail → Play opens signed-URL video player.

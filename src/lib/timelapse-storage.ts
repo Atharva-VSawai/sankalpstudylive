@@ -26,31 +26,63 @@ export function timelapseThumbPath(userId: string, timelapseId: string): string 
   return `${userId}/${timelapseId}/thumb.webp`
 }
 
-// ── Ensure the private bucket exists (idempotent). ──
-// Called once on server boot or lazily on first use. If the bucket doesn't
-// exist, create it as private. If it already exists, this is a no-op.
-export async function ensureTimelapseBucket(): Promise<void> {
+// ── Ensure the private bucket exists (best-effort; user may need to create it
+// in the Supabase Dashboard). ──
+// Supabase Storage has RLS on the `storage.buckets` table by default, so even
+// the service-role key cannot create a bucket via the JS SDK. The bucket must
+// be created once via the Supabase Dashboard (Storage → New bucket → name:
+// "timelapses", Public: NO). If it already exists or gets created, this is a
+// no-op. If creation fails (RLS), we log a clear message and continue — the
+// upload will then fail with a clear "create the bucket" error that the user
+// can act on.
+export async function ensureTimelapseBucket(): Promise<{ ready: boolean; reason?: string }> {
   const supabase = createServerClient()
   const { data, error } = await supabase.storage.listBuckets()
   if (error) {
-    // If listing fails, the service key may not be configured — fall through;
-    // the individual upload/getSignedUrl calls will surface a clear error.
     console.error("[timelapse-storage] could not list buckets:", error.message)
-    return
+    return { ready: false, reason: "Could not access Supabase Storage. Check SUPABASE_SERVICE_ROLE_KEY." }
   }
   const exists = (data ?? []).some((b) => b.name === BUCKET)
-  if (!exists) {
-    const { error: createErr } = await supabase.storage.createBucket(BUCKET, {
-      public: false, // PRIVATE — never make this public
-      fileSizeLimit: 20 * 1024 * 1024, // 20 MB hard cap (target is 2–6 MB)
-      allowedMimeTypes: ["video/webm", "image/webp", "image/jpeg"],
-    })
-    if (createErr) {
-      // If create fails (e.g. already exists from a race, or permission),
-      // log and continue — uploads will fail with a clearer error.
-      console.error("[timelapse-storage] could not create bucket:", createErr.message)
-    }
+  if (exists) return { ready: true }
+  // Try to create it (may fail due to RLS on storage.buckets).
+  const { error: createErr } = await supabase.storage.createBucket(BUCKET, {
+    public: false,
+    fileSizeLimit: 20 * 1024 * 1024,
+    allowedMimeTypes: ["video/webm", "image/webp", "image/jpeg"],
+  })
+  if (createErr) {
+    console.error("[timelapse-storage] could not create bucket (create it in the Supabase Dashboard):", createErr.message)
+    return { ready: false, reason: `Create a private bucket named "${BUCKET}" in the Supabase Dashboard → Storage.` }
   }
+  return { ready: true }
+}
+
+// ── Check if the bucket exists (used to give a clear error before attempting
+// an upload that would fail with a confusing message). ──
+// Returns false if the bucket doesn't exist OR if the service-role key isn't
+// configured (in which case listBuckets() returns empty due to RLS).
+export async function timelapseBucketExists(): Promise<boolean> {
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    // Without the service-role key, we can't access Storage (RLS blocks the
+    // publishable key). Return false so the caller gives a clear error.
+    return false
+  }
+  const supabase = createServerClient()
+  const { data, error } = await supabase.storage.listBuckets()
+  if (error) return false
+  return (data ?? []).some((b) => b.name === BUCKET)
+}
+
+// ── Check if Storage is fully configured (service-role key present + bucket
+// exists). Used by the complete route to give a single clear error. ──
+export function isStorageConfigured(): { ok: boolean; reason?: string } {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+    return { ok: false, reason: "NEXT_PUBLIC_SUPABASE_URL is not set." }
+  }
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return { ok: false, reason: "SUPABASE_SERVICE_ROLE_KEY is not set. Add it to your environment (Supabase Dashboard → Project Settings → API → service_role key). The service-role key bypasses Storage RLS so the server can upload + create signed URLs." }
+  }
+  return { ok: true }
 }
 
 // ── Upload the final compressed timelapse video (server-side, from a Buffer). ──
