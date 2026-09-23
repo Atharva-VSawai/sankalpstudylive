@@ -10,8 +10,9 @@ import { Avatar, formatMinutes, timeAgo, EXAM_META } from "@/components/app/bran
 import { Link } from "@/lib/router"
 import { useAuth } from "@/lib/auth-context"
 import { SessionNoteDialog } from "@/components/app/session-note-dialog"
-import { NotebookPen, Search, Tag, Calendar, Filter, X, BookOpen, TrendingUp, Clock } from "lucide-react"
+import { NotebookPen, Search, Tag, Calendar, Filter, X, BookOpen, TrendingUp, Clock, Download } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { toast } from "sonner"
 import {
   BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell,
 } from "recharts"
@@ -71,11 +72,38 @@ export function JournalView() {
 
   const allTags = Object.keys(stats.tagCounts).sort()
 
+  const exportCsv = async () => {
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("sankalp_token") : null
+      const res = await fetch("/api/study/export", {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+      if (!res.ok) throw new Error("Export failed")
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `sankalp-study-history-${new Date().toISOString().slice(0, 10)}.csv`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      toast.success("CSV downloaded")
+    } catch (e: any) {
+      toast.error(e.message || "Export failed")
+    }
+  }
+
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 pb-24 md:pb-8 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2"><NotebookPen className="size-6 text-brand-emerald" /> Study journal</h1>
-        <p className="text-muted-foreground">Your full study history with notes, tags and reflections. Filter to find what you worked on.</p>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2"><NotebookPen className="size-6 text-brand-emerald" /> Study journal</h1>
+          <p className="text-muted-foreground">Your full study history with notes, tags and reflections. Filter to find what you worked on.</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => exportCsv()} title="Download all sessions as CSV">
+          <Download className="size-4" /> Export CSV
+        </Button>
       </div>
 
       {/* Stats summary */}

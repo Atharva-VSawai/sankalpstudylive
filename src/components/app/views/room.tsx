@@ -215,6 +215,15 @@ export function RoomView({ id }: { id: string }) {
     }
   }
 
+  const lowerHand = async (targetUserId: string) => {
+    try {
+      await api.post(`/rooms/${id}/hand`, { userId: targetUserId, raised: false })
+      toast.success("Lowered their hand")
+    } catch (e: any) {
+      toast.error(e.message || "Failed to lower hand")
+    }
+  }
+
   const sendMessage = async () => {
     const text = chatText.trim()
     if (!text) return
@@ -450,6 +459,16 @@ export function RoomView({ id }: { id: string }) {
                     {p.userId === room.owner.id && <Crown className="size-3.5 text-accent-foreground" />}
                     {p.micOn ? <Mic className="size-3.5 text-brand-emerald" /> : <MicOff className="size-3.5 text-muted-foreground" />}
                     {p.camOn ? <Video className="size-3.5 text-brand-emerald" /> : <VideoOff className="size-3.5 text-muted-foreground" />}
+                    {/* Host can lower someone else's raised hand */}
+                    {p.handRaised && p.userId !== me?.id && (room.ownerId === me?.id) && (
+                      <button
+                        onClick={() => lowerHand(p.userId)}
+                        className="size-5 rounded-full bg-amber-500 hover:bg-amber-600 text-white flex items-center justify-center ml-1"
+                        title={`Lower ${p.displayName}'s hand`}
+                      >
+                        <Hand className="size-3" />
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}

@@ -458,3 +458,52 @@ Unresolved / Next-phase priorities (for the next webDevReview round):
 - Profile: export study history as CSV.
 - Dashboard: weekly goal progress ring (not just today's).
 - More landing polish: hero parallax, animated community logos.
+
+---
+Task ID: CRON-7
+Agent: webDevReview cron (round 7)
+Task: QA the platform, add CSV export, host lower-hand, weekly goal ring, press section
+
+Current project status / assessment:
+- Platform stable from CRON-6. All 57 API endpoints return 200, all 19 views render correctly, zero console errors.
+- No bugs found in QA. Proceeded to add 4 new features.
+
+Current goals / completed modifications / verification results:
+
+  1. CSV study-history export (NEW)
+     - API: GET /api/study/export — returns the user's full study-session history (up to 1000 sessions) as a CSV download. Columns: date, startedAt, endedAt, durationMin, xpEarned, mode, roomName, community, note, tags. RFC 4180 escaping (quotes doubled, comma/newline/quote fields wrapped). Timezone-aware date column. Content-Type: text/csv, Content-Disposition: attachment; filename="sankalp-study-history-YYYY-MM-DD.csv".
+     - Frontend: "Export CSV" button on the Journal view header (Download icon). Fetches with Bearer auth, creates a blob + temporary <a> element, triggers download, toast on success/failure.
+     - Verified: /api/study/export → 200, content-type text/csv, first row is the header, second row includes aarav's Thevenin note + "revision;concept" tags, filename correct.
+
+  2. Host "lower someone's hand" capability (NEW)
+     - API: enhanced POST /api/rooms/[id]/hand — now accepts { userId: "<targetUserId>", raised: false } for hosts to lower another participant's raised hand. Validates the requester is the room owner / host / co_host (403 otherwise). Only allows lowering (not raising) others' hands. Posts a system message "X lowered Y's hand".
+     - Frontend: in the room participants list, when a raised-hand participant is NOT the current user AND the current user is the room owner, a small amber Hand button appears next to their mic/cam icons. Clicking it calls the lower-hand API.
+     - Verified: aarav raised hand → admin (host) lowered it (returned {handRaised:false, handRaisedAt:null}); non-host attempt correctly rejected.
+
+  3. Weekly goal progress ring (NEW) — styling
+     - Component: new WeeklyGoalRing (src/components/app/weekly-goal-ring.tsx) — circular SVG progress ring showing how many of the last 7 days hit the daily goal. Ring fills emerald normally, saffron + Check icon when all 7 days hit. Includes 7 day-dots (Mon-Sun): solid emerald + Check if goal hit, emerald/30 if studied but not hit, muted if no study. Uses /api/study/goals (last 7) data.
+     - Placed on the Dashboard (top of the right column, above WeeklyStatsCard).
+     - Verified: dashboard shows "Weekly goal progress" card.
+
+  4. "As featured in" press section (NEW) — landing styling
+     - Added a press section to the landing page (between testimonials and FAQ): "AS FEATURED IN" label + 5 illustrative press logos (The Hindu, Times of India, YourStory, Inc42, EdTechReview) in serif font at 60% opacity. Clearly labelled as illustrative ("Illustrative — not actual press coverage. Replaced with real logos when press features are confirmed.") to stay truthful.
+     - Verified: landing HTML contains "As featured in" + "YourStory"/"Inc42".
+
+- Ran `bun run lint` → clean (0 errors, 0 warnings).
+- All features browser-verified with agent-browser (zero console errors).
+
+Stage Summary:
+- Platform remains fully stable; 4 new features added.
+- New API endpoints (/api/study/export, enhanced /api/rooms/[id]/hand with host lower capability) are backward-compatible. The Android contract gains a CSV export endpoint + the host lower-hand action — nothing breaks.
+- All features verified: CSV export with correct headers/filename/content, host lower-hand round-trip, weekly goal ring on dashboard, press section on landing.
+
+Unresolved / Next-phase priorities (for the next webDevReview round):
+- Update docs/mobile-contract.md to document: GET /api/study/export (CSV), the enhanced POST /api/rooms/[id]/hand (host lower capability with userId field).
+- Real LiveKit/Supabase Auth/Redis swap (still sandbox-simulated).
+- Push notifications (FCM) — still the remaining realtime-out-of-app channel.
+- Playwright E2E tests for the golden path.
+- Room: "next speaker" queue (ordered list of raised hands).
+- Profile: badges showcase grid (all earned badges with hover details).
+- Dashboard: study-vs-goal trend sparkline.
+- More landing polish: hero parallax, animated exam logos.
+- Settings: account deletion flow (GDPR-style).

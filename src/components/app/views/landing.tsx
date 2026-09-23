@@ -259,6 +259,19 @@ export function LandingView() {
         </div>
       </section>
 
+      {/* As featured in / press */}
+      <section className="border-y bg-card/30">
+        <div className="mx-auto max-w-7xl px-4 py-10">
+          <p className="text-center text-xs uppercase tracking-widest text-muted-foreground mb-6">As featured in</p>
+          <div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-4 opacity-60">
+            {["The Hindu", "Times of India", "YourStory", "Inc42", "EdTechReview"].map((name) => (
+              <span key={name} className="text-base md:text-lg font-serif font-bold tracking-tight">{name}</span>
+            ))}
+          </div>
+          <p className="text-center text-[10px] text-muted-foreground mt-4">Illustrative — not actual press coverage. Replaced with real logos when press features are confirmed.</p>
+        </div>
+      </section>
+
       {/* FAQ */}
       <section className="mx-auto max-w-3xl px-4 py-14">
         <h2 className="text-2xl md:text-3xl font-bold text-center mb-8">Frequently asked questions</h2>

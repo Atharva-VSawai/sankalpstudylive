@@ -11,6 +11,7 @@ import { useAuth } from "@/lib/auth-context"
 import { ActivityHeatmap } from "@/components/app/activity-heatmap"
 import { StreakFreezeCard } from "@/components/app/streak-freeze-card"
 import { WeeklyStatsCard } from "@/components/app/weekly-stats-card"
+import { WeeklyGoalRing } from "@/components/app/weekly-goal-ring"
 import { AchievementsThisWeek } from "@/components/app/achievements-this-week"
 import { SessionNoteDialog } from "@/components/app/session-note-dialog"
 import { useState } from "react"
@@ -209,6 +210,7 @@ export function DashboardView() {
           </CardContent>
         </Card>
         <div className="space-y-4">
+          <WeeklyGoalRing />
           <WeeklyStatsCard />
           <StreakFreezeCard />
         </div>
