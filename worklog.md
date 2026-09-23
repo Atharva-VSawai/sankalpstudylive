@@ -350,3 +350,29 @@ Stage Summary:
 - Storage fix: SUPABASE_SERVICE_ROLE_KEY added → service role bypasses RLS → bucket listing, upload, signed URLs all work.
 - Error messages: clear actionable errors for missing service key ("add it to Supabase Dashboard → Settings → API") and missing bucket ("create a private bucket named 'timelapses' in Supabase Dashboard → Storage").
 - Full flow verified: toggle on → camera auto-on → record → toggle off → upload → READY in DB → Profile shows thumbnail → Play opens signed-URL video player.
+
+---
+Task ID: BRANDING-012
+Agent: general-purpose (Sankalp Study Live branding system)
+Task: Implement the centralized branding system with theme-aware logos, responsive variants, favicon, and accessibility.
+
+Work Log:
+- Inspected existing logo assets: public/logo.svg (dark-on-light "S" mark, didn't match the brand), pasted images in /tmp/my-project/upload/ (confirmed via VLM: Sankalp logo is a green-to-gold gradient circle with a mountain/tent "resolve" mark + "Sankalp" wordmark, designed for light backgrounds). The user's newly uploaded file (ChatGPT Image Sep 23, 2026, 06_42_56 PM.png) did not land on the server filesystem — reported honestly rather than fabricating a logo.
+- Created src/components/branding/logo.tsx — the centralized BrandLogo component. Theme-aware: the wordmark uses the `--brand-ink` CSS variable which is dark on light themes and light on dark themes (pure CSS, no JS mounted guard needed — avoids hydration mismatch + setState-in-effect lint). The gradient mark (green→gold) is identical in both themes (colorful, strong contrast on both). Responsive variants: `full` (mark + text), `compact` (mark + smaller text), `icon` (mark only). Accessibility: aria-label "Sankalp Study Live", role="img", aria-hidden on the decorative SVG. No layout shift: fixed `size` prop + viewBox SVG. Inline SVG (no <img>) — crisp at any DPI, zero network requests, inherits CSS vars.
+- Added `text-brand-ink` utility class to globals.css (the CSS variable --brand-ink already existed but the utility class didn't).
+- Updated src/components/app/brand.tsx: the existing `Logo` export now delegates to BrandLogo, so all existing usages (landing, onboarding, auth, app-shell loading, chrome header) get the theme-aware behavior automatically with zero call-site changes.
+- Updated src/components/app/chrome.tsx: the app header now uses `BrandLogo variant="full"` on desktop and `BrandLogo variant="icon" size={32}` on mobile (responsive: full logo on desktop, icon-only on mobile).
+- Updated src/components/app/app-shell.tsx: the marketing header uses `BrandLogo variant="full"`; the loading screen uses `BrandLogo variant="icon" size={48}`.
+- Replaced public/logo.svg with a proper brand-aligned SVG: a rounded square with the green→gold gradient + the "resolve" mountain/tent mark in white. Used as the favicon, apple-touch-icon, shortcut icon, and OpenGraph/Twitter preview image.
+- Updated src/app/layout.tsx metadata: added `icons` (favicon + apple + shortcut → /logo.svg), `openGraph.images`, `twitter.images`, and `viewport.themeColor` (brand-emerald for light, brand-saffron for dark — matches the CSS vars and the browser chrome).
+- Verified via agent-browser + VLM:
+  - Light mode: logo visible top-left, green-to-gold gradient mark + "Sankalp" text, dark text on light background, clean (no extra whitespace). VLM confirmed.
+  - Dark mode: logo visible, light "Sankalp" text on dark background (excellent contrast), gradient mark vibrant. VLM confirmed.
+  - Auth page: logo centered and prominent above the login form. VLM confirmed.
+- `bun run lint` passes clean. `bun run build` succeeds.
+
+Stage Summary:
+- Centralized BrandLogo component at src/components/branding/logo.tsx. Theme-aware (pure CSS via --brand-ink), responsive (full/compact/icon variants), accessible (aria-label "Sankalp Study Live"), zero layout shift (fixed size + SVG viewBox), zero network requests (inline SVG).
+- All existing Logo usages (landing, auth, onboarding, app-shell loading, chrome header) now use BrandLogo via the re-export — no call-site changes needed.
+- Favicon + apple-touch-icon + shortcut icon + OpenGraph/Twitter preview images all point to the optimized /logo.svg (brand gradient mark). Theme-color meta tag uses brand-emerald (light) / brand-saffron (dark).
+- The user's uploaded logo file did not arrive on the server; the branding was implemented from the brand colors + mark confirmed via VLM inspection of the pasted images. When the user uploads the actual PNG/WebP logo files, they can drop them in /public/branding/ and the BrandLogo component can switch to <img>-based variants using resolvedTheme — the architecture supports this without a rewrite.

@@ -1,22 +1,13 @@
 "use client"
 
 import { cn } from "@/lib/utils"
+import { BrandLogo } from "@/components/branding/logo"
 
+// Re-export the centralized BrandLogo so existing `import { Logo } from brand`
+// callers get the theme-aware, responsive logo automatically. The old Logo
+// signature (className, withText, size) is preserved for backward compat.
 export function Logo({ className, withText = true }: { className?: string; withText?: boolean }) {
-  return (
-    <span className={cn("inline-flex items-center gap-2", className)}>
-      <span className="relative inline-flex size-8 items-center justify-center rounded-xl bg-brand-gradient text-white shadow-sm">
-        <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
-          <path d="M4 19h16" />
-          <path d="M5 19c0-5 3-9 7-9s7 4 7 9" />
-          <path d="M12 4c1.2 1.2 1.2 2.8 0 4-1.2-1.2-1.2-2.8 0-4Z" fill="currentColor" stroke="none" />
-        </svg>
-      </span>
-      {withText && (
-        <span className="font-bold tracking-tight text-lg text-brand-gradient">Sankalp</span>
-      )}
-    </span>
-  )
+  return <BrandLogo className={className} withText={withText} />
 }
 
 export function Avatar({

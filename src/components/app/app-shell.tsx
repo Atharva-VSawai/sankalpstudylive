@@ -5,6 +5,7 @@ import { useRouter, Link } from "@/lib/router"
 import { useAuth } from "@/lib/auth-context"
 import { useIdleAutoLogout } from "@/lib/use-idle-auto-logout"
 import { Logo } from "@/components/app/brand"
+import { BrandLogo } from "@/components/branding/logo"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/app/theme-toggle"
 import { AppHeader, AppSidebar, MobileNav } from "@/components/app/chrome"
@@ -79,7 +80,7 @@ export function AppShell() {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <Logo withText={false} className="scale-150" />
+          <BrandLogo variant="icon" size={48} />
           <p className="text-sm text-muted-foreground">Loading Sankalp…</p>
         </div>
       </div>
@@ -124,7 +125,7 @@ function MarketingHeader() {
   return (
     <header className="sticky top-0 z-40 w-full border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4">
-        <Link to="/" className="flex items-center"><Logo /></Link>
+        <Link to="/" className="flex items-center"><BrandLogo variant="full" /></Link>
         <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
           <Link to="/communities" className="text-muted-foreground hover:text-foreground">Communities</Link>
           <Link to="/rooms" className="text-muted-foreground hover:text-foreground">Live Rooms</Link>

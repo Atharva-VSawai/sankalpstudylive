@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
@@ -24,18 +24,39 @@ export const metadata: Metadata = {
     "Pomodoro", "study timer", "study accountability",
   ],
   authors: [{ name: "Sankalp" }],
+  // ── Favicon + PWA icons (SVG stays crisp at any size; the brand mark) ──
+  icons: {
+    icon: [
+      { url: "/logo.svg", type: "image/svg+xml" },
+      { url: "/logo.svg", type: "image/svg+xml", sizes: "any" },
+    ],
+    apple: "/logo.svg",
+    shortcut: "/logo.svg",
+  },
+  // ── OpenGraph + Twitter preview ──
   openGraph: {
     title: "Sankalp — Study with people preparing for the same goal",
     description:
       "Live study rooms and exam communities for India's competitive exams. Study together, stay accountable, earn streaks and badges.",
     siteName: "Sankalp",
     type: "website",
+    images: [{ url: "/logo.svg", alt: "Sankalp Study Live" }],
   },
   twitter: {
     card: "summary_large_image",
     title: "Sankalp",
     description: "Study with people preparing for the same goal.",
+    images: ["/logo.svg"],
   },
+  manifest: undefined,
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    // brand-emerald (light) and brand-saffron (dark) match the CSS vars
+    { media: "(prefers-color-scheme: light)", color: "#0e8a5b" },
+    { media: "(prefers-color-scheme: dark)", color: "#e0a02a" },
+  ],
 };
 
 export default function RootLayout({

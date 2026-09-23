@@ -1,6 +1,7 @@
 "use client"
 
 import { Logo, Avatar } from "@/components/app/brand"
+import { BrandLogo } from "@/components/branding/logo"
 import { ThemeToggle } from "@/components/app/theme-toggle"
 import { useAuth } from "@/lib/auth-context"
 import { useRouter, Link } from "@/lib/router"
@@ -37,9 +38,13 @@ export function AppHeader() {
     <header className="sticky top-0 z-40 w-full border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="flex h-16 items-center gap-3 px-4">
         <Link to="/dashboard" className="hidden md:flex items-center shrink-0">
-          <Logo />
+          {/* Desktop navbar: full logo + text */}
+          <BrandLogo variant="full" />
         </Link>
-        <Link to="/dashboard" className="md:hidden"><Logo withText={false} /></Link>
+        <Link to="/dashboard" className="md:hidden">
+          {/* Mobile: icon-only (space is limited) */}
+          <BrandLogo variant="icon" size={32} />
+        </Link>
 
         <Button
           variant="outline"

@@ -134,6 +134,8 @@
 @layer utilities {
   .text-brand-emerald { color: var(--brand-emerald); }
   .text-brand-saffron { color: var(--brand-saffron); }
+  /* brand-ink is dark on light themes, light on dark themes — for the wordmark */
+  .text-brand-ink { color: var(--brand-ink); }
   .bg-brand-emerald { background-color: var(--brand-emerald); }
   .bg-brand-saffron { background-color: var(--brand-saffron); }
   .bg-brand-gradient {
