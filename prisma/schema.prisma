@@ -1,15 +1,14 @@
 // Sankalp — India-focused virtual study platform
-// Prisma schema. Production target: PostgreSQL/Supabase (UUIDs, enums, arrays, RLS).
-// Sandbox runtime: SQLite. We mirror the PG design with cuid IDs and string-typed enums
-// (validated in the API layer) so the schema maps 1:1 to the documented PG target.
-// See docs/database.md for the production PostgreSQL DDL and docs/mobile-contract.md for the API.
+// Prisma schema for PostgreSQL (Supabase).
+// Uses UUIDs, enums, arrays, timestamptz via Prisma + PostgreSQL.
+// See docs/database.md for DDL and docs/mobile-contract.md for the API.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
