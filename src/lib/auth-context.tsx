@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from "react"
+import { createContext, useContext, useEffect, useState, useCallback, useMemo, ReactNode } from "react"
 import { createBrowserClient } from "@/lib/supabase"
 import { api, setToken, getToken, ApiError } from "@/lib/api-client"
 
@@ -52,7 +52,13 @@ const Ctx = createContext<AuthState>(null as any)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<Me | null>(null)
   const [loading, setLoading] = useState(true)
-  const supabase = createBrowserClient()
+  // Memoize the Supabase client so it is created ONCE per provider mount.
+  // Previously this was called in the render body, creating a new client on
+  // every render → fetchMe callback was recreated every render → the auth
+  // useEffect re-ran every render → setMe() → re-render → infinite loop of
+  // /api/auth/me calls. This also destabilized `me` identity for every
+  // consumer (e.g. RoomView's connect effect), causing token-request loops.
+  const supabase = useMemo(() => createBrowserClient(), [])
 
   // ── Fetch user profile from our backend API ──
   const fetchMe = useCallback(async () => {

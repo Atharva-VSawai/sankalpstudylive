@@ -81,7 +81,7 @@ export function RoomView({ id }: { id: string }) {
         await lkRoom.connect(tokenRes.serverUrl, tokenRes.token)
         if (cancelled) { lkRoom.disconnect(); return }
 
-        setConnectionState(lkRoom.connectionState)
+        setConnectionState(lkRoom.state)
 
         // 4. Listen for participant events
         const updateParticipants = () => {
@@ -108,6 +108,14 @@ export function RoomView({ id }: { id: string }) {
         })
         lkRoom.on(RoomEvent.Reconnecting, () => setConnectionState(ConnectionState.Reconnecting))
         lkRoom.on(RoomEvent.Reconnected, () => setConnectionState(ConnectionState.Connected))
+
+        // Re-sync connection state AFTER all listeners are registered.
+        // The connecting -> connected transition fires internally during
+        // await lkRoom.connect() — BEFORE the ConnectionStateChanged listener
+        // above was registered. Without this re-sync, React state can get
+        // stuck at "Connecting" even though the LiveKit Room is fully connected.
+        // NOTE: livekit-client v2.x uses Room.state (not Room.connectionState).
+        setConnectionState(lkRoom.state)
 
         // 5. Start server-side study session
         try {
@@ -346,7 +354,7 @@ function ParticipantTile({ participant, isMe }: { participant: Participant; isMe
   const [hasVideo, setHasVideo] = useState(false)
 
   useEffect(() => {
-    const videoTrack = participant.getTrack(Track.Source.Camera)
+    const videoTrack = participant.getTrackPublication(Track.Source.Camera)
     if (videoTrack && videoTrack.track) {
       const el = videoRef.current
       if (el) {

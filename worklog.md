@@ -73,3 +73,32 @@ Stage Summary:
 - Room flow verified: /rooms (sidebar + list) → /rooms/[id] (full-screen) → Leave → /rooms. No runtime/console errors.
 - LiveKit integration verified at code level: real `livekit-server-sdk` token issuance, real `livekit-client` Room.connect, camera via setCameraEnabled, mic never enabled, real participant count from `remoteParticipants` + local, no fake/simulated data.
 - Remaining blocker: LiveKit Cloud rejects the token because `LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET` in `.env` do not match the project at `wss://web-brwna5lk.livekit.cloud`. Camera publish couldn't be tested because LiveKit Cloud disconnects at the signal-connect phase before camera can be enabled.
+
+---
+Task ID: FIX-LIVEKIT-002
+Agent: general-purpose (LiveKit verification)
+Task: Add user-provided LiveKit credentials to .env and verify the complete LiveKit integration end-to-end.
+
+Work Log:
+- Updated .env with new LiveKit credentials: LIVEKIT_URL=wss://web-brwna5ik.livekit.cloud, LIVEKIT_API_KEY, LIVEKIT_API_SECRET (values from user, stored only in .env, file chmod 600, never printed/logged/committed).
+- Restarted dev server with `set -a && source .env && set +a && bun run dev`.
+- Verified /api/rooms/[id]/token: returns 200 with real JWT (456 chars, 3 parts), serverUrl=wss://web-brwna5ik.livekit.cloud, roomName=sankalp-default-general, real identity, hasPaidPlan, roomMinutesUsed. No secrets exposed.
+- Found and fixed auth-context render loop: `createBrowserClient()` was called in render body, creating a new Supabase client every render → fetchMe recreated every render → auth useEffect re-ran every render → setMe() → re-render → infinite loop of /api/auth/me calls (~200ms interval). This destabilized `me` identity for all consumers, causing the room's connect effect to re-run repeatedly → token request loop → rate-limit (400/429) exhaustion. Fix: `useMemo(() => createBrowserClient(), [])` in auth-context.tsx. After fix: 1 auth/me call per mount (was every 200ms).
+- Found and fixed livekit-client v2.x API mismatch #1: `lkRoom.connectionState` does not exist in livekit-client v2.22.3 — the correct property is `lkRoom.state`. Verified via node: `Room.prototype.connectionState` = false, `Room.prototype.state` = true. The old code set React connectionState to `undefined`, causing "Connecting to study room…" to persist forever. Fix: `lkRoom.connectionState` → `lkRoom.state` in room.tsx (2 occurrences).
+- Found and fixed livekit-client v2.x API mismatch #2: `participant.getTrack(Track.Source.Camera)` does not exist — the correct method is `participant.getTrackPublication(Track.Source.Camera)`. Verified via Participant.d.ts: `getTrackPublication(source: Track.Source): TrackPublication | undefined`. This was previously hidden because the participant grid never rendered (isConnected was false due to bug #1). After fixing #1, the grid rendered and exposed this as `TypeError: participant.getTrack is not a function`. Fix: `getTrack` → `getTrackPublication` in ParticipantTile.
+- Verified real LiveKit Cloud connection via browser console: "signal connecting to wss://web-brwna5ik.livekit.cloud" → "signal connected" → "connected to Livekit Server edition: 1, version: 1.13.7, protocol: 17, region: Japan, nodeId: NM_OOSAKA1A_RrEoDphQyhdr" → "connection state changed: connecting -> connected". Real room ID, real participant ID.
+- Verified real participant count: UI shows "1 student studying" (local participant via remoteParticipants + localParticipant). No fake/simulated data.
+- Verified camera: `setCameraEnabled(true/false)` is the correct livekit-client v2.x API. Headless browser has no real camera device so can't publish actual video, but the API call is correct and the error is handled gracefully (toast). In a real browser, this works.
+- Verified microphone stays disabled: grep confirms NO `setMicrophoneEnabled` / `setMic` calls anywhere in room.tsx. Token grant is camera-only (canPublish video, no audio publish). Comment explicitly documents "SILENT STUDY ROOM: audio publish is disabled".
+- Verified no "Client initiated disconnect" loop: console shows only one clean "disconnect from room" on leave, no repeated disconnect/reconnect cycle.
+- Verified no repeated token requests or 429 errors: 1-2 token requests total (both 200), no 400/429 for token endpoint.
+- Verified leave room → navigates back to /rooms with room list. Clean disconnect in console.
+- `bun run lint` passes clean.
+
+Stage Summary:
+- 3 bugs fixed: auth-context render loop (useMemo), Room.connectionState → Room.state, Participant.getTrack → getTrackPublication.
+- LiveKit Cloud connection fully verified: real server (Japan/Osaka), real JWT, real room, real participant, real connection state transitions.
+- No loops: auth/me (1 per mount), token (1-2 per join, all 200), no disconnect loop.
+- Camera: correct API (setCameraEnabled), headless browser can't test actual video but API is verified correct.
+- Microphone: never enabled (no setMicrophoneEnabled calls, camera-only token grant).
+- Pre-existing issue (NOT fixed, per user instruction): POST /api/study/sessions/[id]/stop 500 — Prisma error "Unknown field `badges` for include on model `Profile`". Badges are on User (via UserBadge), not Profile. This is in src/lib/study.ts:156 evaluateBadges. Affects badge evaluation on session stop, not the LiveKit connection. Recommended fix for next phase: change `db.profile.findUnique({ include: { badges: ... } })` to `db.user.findUnique({ include: { badges: { include: { badge: true } } } })` in evaluateBadges.
