@@ -6,7 +6,14 @@ export type MeResponse = {
   role: string
   status: string
   profile: any
-  streak: { current: number; longest: number; lastStudyDate: Date | null } | null
+  streak: {
+    current: number
+    longest: number
+    lastStudyDate: Date | null
+    freezesAvailable: number
+    freezesUsed: number
+    lastFreezeDate: Date | null
+  } | null
 }
 
 export async function loadMe(userId: string): Promise<MeResponse> {

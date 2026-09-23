@@ -53,3 +53,6 @@ server.log
 # Skills directory
 /skills/\.env\.local
 \.env
+upload
+*.log
+worklog.md
