@@ -406,3 +406,55 @@ Unresolved / Next-phase priorities (for the next webDevReview round):
 - Dashboard: "achievements this week" (badges earned, streak milestones).
 - Profile: study-streak calendar view (green squares for studied days).
 - Room: raise-hand feature (Hand icon → bumps participant to top of list).
+
+---
+Task ID: CRON-6
+Agent: webDevReview cron (round 6)
+Task: QA the platform, add raise-hand, streak calendar, achievements this week, whiteboard thickness
+
+Current project status / assessment:
+- Platform stable from CRON-5. All 55 API endpoints return 200, all 19 views render correctly, zero console errors.
+- No bugs found in QA. Proceeded to add 4 new features.
+
+Current goals / completed modifications / verification results:
+
+  1. Room raise-hand feature (NEW)
+     - Lib: extended PresenceParticipant with handRaised + handRaisedAt fields.
+     - API: POST /api/rooms/[id]/hand { raised: boolean } — toggles the user's raised hand in presence, posts a system message ("X raised their hand ✋" / "X lowered their hand"), validates membership.
+     - Frontend: Hand button in the room bottom controls (toggles amber when raised). Participants list now sorts raised hands to the top + shows an amber ✋ badge on the avatar + "raised" label + amber-tinted row. toggleHand handler with optimistic update + revert on error.
+     - Verified: raise returns {handRaised:true, handRaisedAt:...}; presence shows handRaised=True; lower returns {handRaised:false, handRaisedAt:null}.
+
+  2. Profile study-streak calendar (NEW) — styling
+     - Component: new StreakCalendar (src/components/app/streak-calendar.tsx) — renders the last N months as traditional calendar grids (S-M-T-W-T-F-S columns). Each day: muted if no study, emerald/30 if <60m, emerald/50 if 60-180m, solid emerald if ≥180m (with Flame icon), today gets a saffron ring. Reuses /api/study/heatmap data.
+     - Placed on the Profile page (above the referral card) as "Streak calendar" with a Flame icon.
+     - Verified: profile shows "Streak calendar" with month names.
+
+  3. Dashboard "achievements this week" section (NEW)
+     - API: GET /api/study/achievements — returns badges earned in the last 7 days (with full badge metadata), totalXp gained, longestSession, goalHitDays (distinct completed-goal days), streakMilestone (if current streak is a multiple of 7), sessionCount.
+     - Component: new AchievementsThisWeek (src/components/app/achievements-this-week.tsx) — stat pills (XP earned / longest session / goals hit / streak milestone, each color-tinted), badges-earned-this-week list (tier emoji + name + tier), session count footer, empty state ("No achievements yet this week. Study to earn XP, badges and streak milestones! 🔥").
+     - Placed on the Dashboard (between the recent sessions/badges grid and the heatmap/streak-freeze row).
+     - Verified: dashboard shows "This week's achievements" card.
+
+  4. Whiteboard stroke thickness control (NEW) — styling
+     - Schema/lib: extended WhiteboardStroke with optional width field. Whiteboard API POST now accepts + persists width (1-20, default 2.5). Redraw logic uses per-stroke width (falls back to current thickness).
+     - Frontend: Whiteboard toolbar now has a thickness slider (1-10px, 0.5 step) with a live preview dot showing the current width. The in-progress + committed strokes use the selected thickness.
+     - Verified: API returns width=5 when sent width=5; whiteboard modal has a thickness slider (input[type=range]).
+
+- Ran `bun run lint` → clean (0 errors, 0 warnings) after fixing a useCallback deps issue (added thickness to onPointerUp deps).
+- All features browser-verified with agent-browser (zero console errors).
+
+Stage Summary:
+- Platform remains fully stable; 4 new features added.
+- New API endpoints (/api/rooms/[id]/hand, /api/study/achievements, enhanced whiteboard POST with width) are backward-compatible. The Android contract gains a raise-hand endpoint, an achievements endpoint, handRaised/handRaisedAt on PresenceParticipant, and width on WhiteboardStroke — nothing breaks.
+- All features verified: raise-hand round-trip (raise→presence→lower), streak calendar on profile, achievements card on dashboard, whiteboard thickness slider.
+
+Unresolved / Next-phase priorities (for the next webDevReview round):
+- Update docs/mobile-contract.md to document: POST /api/rooms/[id]/hand, GET /api/study/achievements, the handRaised/handRaisedAt fields on PresenceParticipant, and the width field on WhiteboardStroke.
+- Real LiveKit/Supabase Auth/Redis swap (still sandbox-simulated).
+- Push notifications (FCM) — still the remaining realtime-out-of-app channel.
+- Playwright E2E tests for the golden path.
+- "As seen in" / press section on landing.
+- Room: host can lower someone else's hand + "next speaker" queue.
+- Profile: export study history as CSV.
+- Dashboard: weekly goal progress ring (not just today's).
+- More landing polish: hero parallax, animated community logos.

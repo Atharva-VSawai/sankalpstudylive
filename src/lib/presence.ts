@@ -12,6 +12,8 @@ export type PresenceParticipant = {
   role: "host" | "co_host" | "participant" | "viewer"
   joinedAt: number
   lastSeenAt: number
+  handRaised?: boolean
+  handRaisedAt?: number | null
 }
 
 type RoomState = {

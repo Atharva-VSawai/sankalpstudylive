@@ -74,6 +74,7 @@ export function RoomView({ id }: { id: string }) {
   const [screenSharing, setScreenSharing] = useState(false)
   const [levelUp, setLevelUp] = useState<{ level: number; open: boolean }>({ level: 0, open: false })
   const [showWhiteboard, setShowWhiteboard] = useState(false)
+  const [handRaised, setHandRaised] = useState(false)
 
   const sessionIdRef = useRef<string | null>(null)
   const esRef = useRef<EventSource | null>(null)
@@ -200,6 +201,18 @@ export function RoomView({ id }: { id: string }) {
       setInviteUsername("")
       setShowInvite(false)
     } catch (e: any) { toast.error(e.message || "Failed to invite") }
+  }
+
+  const toggleHand = async () => {
+    const next = !handRaised
+    setHandRaised(next)
+    try {
+      await api.post(`/rooms/${id}/hand`, { raised: next })
+      toast.success(next ? "Hand raised ✋" : "Hand lowered")
+    } catch (e: any) {
+      setHandRaised(!next) // revert
+      toast.error(e.message || "Failed to toggle hand")
+    }
   }
 
   const sendMessage = async () => {
@@ -411,13 +424,25 @@ export function RoomView({ id }: { id: string }) {
             </>
           ) : (
             <div className="flex-1 overflow-y-auto scroll-thin p-2 space-y-1">
-              {participants.map((p) => (
-                <div key={p.userId} className="flex items-center gap-2 p-2 rounded-lg hover:bg-accent">
-                  <Avatar name={p.displayName} src={p.avatarUrl} size={32} speaking={p.isSpeaking} />
+              {[...participants].sort((a, b) => {
+                // raised hands first (by raisedAt), then everyone else
+                if (a.handRaised && !b.handRaised) return -1
+                if (!a.handRaised && b.handRaised) return 1
+                if (a.handRaised && b.handRaised) return (a.handRaisedAt ?? 0) - (b.handRaisedAt ?? 0)
+                return 0
+              }).map((p) => (
+                <div key={p.userId} className={cn("flex items-center gap-2 p-2 rounded-lg hover:bg-accent", p.handRaised && "bg-amber-50 dark:bg-amber-950/30 ring-1 ring-amber-200 dark:ring-amber-800")}>
+                  <div className="relative">
+                    <Avatar name={p.displayName} src={p.avatarUrl} size={32} speaking={p.isSpeaking} />
+                    {p.handRaised && (
+                      <span className="absolute -top-1 -right-1 size-4 rounded-full bg-amber-500 text-white flex items-center justify-center text-[8px]" title="Hand raised">✋</span>
+                    )}
+                  </div>
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-medium truncate flex items-center gap-1">
                       {p.displayName}
                       {p.userId === me?.id && <span className="text-[10px] text-muted-foreground">(you)</span>}
+                      {p.handRaised && <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">raised</span>}
                     </div>
                     <div className="text-xs text-muted-foreground">@{p.username}</div>
                   </div>
@@ -438,6 +463,7 @@ export function RoomView({ id }: { id: string }) {
         <ControlBtn active={micOn} onClick={toggleMic} on={<Mic className="size-5" />} off={<MicOff className="size-5" />} label={micOn ? "Mute" : "Unmute"} />
         <ControlBtn active={camOn} onClick={toggleCam} on={<Video className="size-5" />} off={<VideoOff className="size-5" />} label={camOn ? "Stop video" : "Start video"} />
         <ControlBtn active={screenSharing} onClick={toggleScreenShare} on={<MonitorUp className="size-5" />} off={<MonitorUp className="size-5" />} label={screenSharing ? "Stop share" : "Share screen"} />
+        <ControlBtn active={handRaised} onClick={toggleHand} on={<Hand className="size-5" />} off={<Hand className="size-5" />} label={handRaised ? "Lower hand" : "Raise hand"} />
 
         {/* Reactions */}
         <div className="relative">

@@ -11,6 +11,7 @@ import { useAuth } from "@/lib/auth-context"
 import { ActivityHeatmap } from "@/components/app/activity-heatmap"
 import { StreakFreezeCard } from "@/components/app/streak-freeze-card"
 import { WeeklyStatsCard } from "@/components/app/weekly-stats-card"
+import { AchievementsThisWeek } from "@/components/app/achievements-this-week"
 import { SessionNoteDialog } from "@/components/app/session-note-dialog"
 import { useState } from "react"
 import { NotebookPen, Clock as ClockIcon } from "lucide-react"
@@ -193,6 +194,9 @@ export function DashboardView() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Achievements this week */}
+      <AchievementsThisWeek />
 
       {/* Activity heatmap + streak freeze */}
       <div className="grid lg:grid-cols-3 gap-6">

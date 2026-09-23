@@ -69,11 +69,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
   }
 
+  const width = Number(body?.width)
+  const strokeWidth = Number.isFinite(width) && width > 0 && width <= 20 ? width : 2.5
+
   const stroke = addWhiteboardStroke(id, {
     userId: ctx.userId,
     username: profile?.username ?? "anon",
     color,
     points,
-  })
+    width: strokeWidth,
+  } as any)
   return ok({ stroke })
 }

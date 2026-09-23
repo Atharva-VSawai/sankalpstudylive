@@ -18,6 +18,7 @@ type Stroke = {
   createdAt: number
   kind?: "text"
   text?: string
+  width?: number
 }
 
 const COLORS = ["#10b981", "#f59e0b", "#ef4444", "#0ea5e9", "#8b5cf6", "#ec4899", "#111827"]
@@ -28,6 +29,7 @@ export function Whiteboard({ roomId, onOpenChange }: { roomId: string; onOpenCha
   const [strokes, setStrokes] = useState<Stroke[]>([])
   const [color, setColor] = useState(COLORS[0])
   const [tool, setTool] = useState<"pen" | "eraser" | "text">("pen")
+  const [thickness, setThickness] = useState(2.5)
   const [drawing, setDrawing] = useState(false)
   const [textInput, setTextInput] = useState<{ x: number; y: number; value: string } | null>(null)
   const currentStrokeRef = useRef<Stroke | null>(null)
@@ -96,7 +98,7 @@ export function Whiteboard({ roomId, onOpenChange }: { roomId: string; onOpenCha
       if (s.points.length < 1) continue
       ctx.beginPath()
       ctx.strokeStyle = s.color
-      ctx.lineWidth = 2.5
+      ctx.lineWidth = s.width ?? 2.5
       ctx.lineCap = "round"
       ctx.lineJoin = "round"
       ctx.moveTo(s.points[0].x * w, s.points[0].y * h)
@@ -110,7 +112,7 @@ export function Whiteboard({ roomId, onOpenChange }: { roomId: string; onOpenCha
     if (cur && cur.points.length > 0) {
       ctx.beginPath()
       ctx.strokeStyle = cur.color
-      ctx.lineWidth = 2.5
+      ctx.lineWidth = cur.width ?? thickness
       ctx.lineCap = "round"
       ctx.lineJoin = "round"
       ctx.moveTo(cur.points[0].x * w, cur.points[0].y * h)
@@ -119,7 +121,7 @@ export function Whiteboard({ roomId, onOpenChange }: { roomId: string; onOpenCha
       }
       ctx.stroke()
     }
-  }, [strokes, size])
+  }, [strokes, size, thickness])
 
   const getPoint = (e: React.PointerEvent): Point => {
     const rect = canvasRef.current!.getBoundingClientRect()
@@ -146,6 +148,7 @@ export function Whiteboard({ roomId, onOpenChange }: { roomId: string; onOpenCha
       color,
       points: [getPoint(e)],
       createdAt: Date.now(),
+      width: thickness,
     }
     // force redraw to show the first dot
     setStrokes((p) => [...p])
@@ -173,11 +176,11 @@ export function Whiteboard({ roomId, onOpenChange }: { roomId: string; onOpenCha
     // optimistically add; server will assign id
     setStrokes((p) => [...p.slice(-199), { ...stroke }])
     try {
-      await api.post(`/rooms/${roomId}/whiteboard`, { color: stroke.color, points: stroke.points })
+      await api.post(`/rooms/${roomId}/whiteboard`, { color: stroke.color, points: stroke.points, width: stroke.width ?? thickness })
     } catch (e: any) {
       toast.error(e.message || "Failed to sync stroke")
     }
-  }, [drawing, roomId])
+  }, [drawing, roomId, thickness])
 
   const clearBoard = async () => {
     try {
@@ -236,6 +239,23 @@ export function Whiteboard({ roomId, onOpenChange }: { roomId: string; onOpenCha
                   title={c}
                 />
               ))}
+            </div>
+            <div className="h-6 w-px bg-border mx-1" />
+            {/* Thickness control */}
+            <div className="flex items-center gap-1.5 px-1">
+              <input
+                type="range"
+                min={1}
+                max={10}
+                step={0.5}
+                value={thickness}
+                onChange={(e) => setThickness(Number(e.target.value))}
+                className="w-16 h-1 accent-[var(--brand-emerald)]"
+                title={`Stroke width: ${thickness}px`}
+              />
+              <div className="size-6 flex items-center justify-center" title={`${thickness}px`}>
+                <span className="rounded-full bg-foreground" style={{ width: thickness, height: thickness }} />
+              </div>
             </div>
             <div className="h-6 w-px bg-border mx-1" />
             <Button size="sm" variant={tool === "pen" ? "default" : "outline"} onClick={() => setTool("pen")} title="Pen">

@@ -11,6 +11,7 @@ import { Settings, Share2, Flame, Clock, Sparkles, Award, BookOpen, Copy, Trophy
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell } from "recharts"
 import { toast } from "sonner"
 import { ActivityHeatmap } from "@/components/app/activity-heatmap"
+import { StreakCalendar } from "@/components/app/streak-calendar"
 
 export function ProfileView() {
   const { me } = useAuth()
@@ -137,6 +138,14 @@ export function ProfileView() {
               ))}
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Streak calendar — month grid */}
+      <Card>
+        <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Flame className="size-4 text-orange-500" /> Streak calendar</CardTitle></CardHeader>
+        <CardContent>
+          <StreakCalendar months={3} />
         </CardContent>
       </Card>
 
