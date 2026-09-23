@@ -62,20 +62,43 @@ export async function POST(req: NextRequest) {
   return ok({ sessionId: session.id, startedAt: session.startedAt })
 }
 
-// GET /api/study/sessions — history for the authed user
+// GET /api/study/sessions — history for the authed user (with optional tag + date filters)
 export async function GET(req: NextRequest) {
   const ctx = await getAuth(req)
   if (!ctx) return unauthorized()
   const url = new URL(req.url)
-  const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") || 30)))
+  const limit = Math.min(200, Math.max(1, Number(url.searchParams.get("limit") || 30)))
+  const tag = url.searchParams.get("tag")
+  const from = url.searchParams.get("from") // ISO date
+  const to = url.searchParams.get("to") // ISO date
+  const hasNote = url.searchParams.get("hasNote") === "true"
+
+  const where: any = { userId: ctx.userId, endedAt: { not: null } }
+  if (from || to) {
+    where.startedAt = {}
+    if (from) where.startedAt.gte = new Date(from)
+    if (to) where.startedAt.lte = new Date(to + "T23:59:59.999Z")
+  }
+  if (hasNote) where.note = { not: null }
+
   const sessions = await db.studySession.findMany({
-    where: { userId: ctx.userId, endedAt: { not: null } },
+    where,
     orderBy: { startedAt: "desc" },
     take: limit,
     include: { room: { select: { id: true, name: true } }, community: { select: { slug: true, name: true } } },
   })
+
+  // Tag filter is applied in-memory because tags is a JSON string in SQLite.
+  let filtered = sessions
+  if (tag) {
+    filtered = filtered.filter((s) => {
+      const tags = safeParse(s.tags)
+      return tags.includes(tag)
+    })
+  }
+
   return ok({
-    sessions: sessions.map((s) => ({
+    sessions: filtered.map((s) => ({
       id: s.id,
       startedAt: s.startedAt,
       endedAt: s.endedAt,
@@ -113,7 +136,7 @@ export async function closeSession(sessionId: string, timezone: string) {
     where: { id: sessionId },
     data: { endedAt, durationMin, xpEarned: xp, isVerified: true },
   })
-  const { level } = await awardXp(session.userId, durationMin)
+  const { level, oldLevel, leveledUp } = await awardXp(session.userId, durationMin)
   const streak = await bumpStreak(session.userId, timezone)
   const goal = await bumpDailyGoal(session.userId, timezone, durationMin)
   const awardedBadges = await evaluateBadges(session.userId, durationMin, session.startedAt, {
@@ -126,17 +149,29 @@ export async function closeSession(sessionId: string, timezone: string) {
   if (streak.current > 0 && streak.current % 7 === 0) await trackEvent(session.userId, "streak_milestone", { streak: streak.current })
   if (awardedBadges.length) {
     for (const b of awardedBadges) {
-      await db.notification.create({
-        data: {
-          userId: session.userId,
-          type: "badge_earned",
-          title: `Badge earned: ${b.name}`,
-          body: b.description,
-          link: "#/dashboard",
-        },
-      })
+      if (await isNotifEnabledSafe(session.userId, "badge_earned")) {
+        await db.notification.create({
+          data: {
+            userId: session.userId,
+            type: "badge_earned",
+            title: `Badge earned: ${b.name}`,
+            body: b.description,
+            link: "#/dashboard",
+          },
+        })
+      }
       await trackEvent(session.userId, "badge_earned", { slug: b.slug })
     }
   }
-  return { durationMin, xpEarned: xp, level, streak: streak.current, goal, awardedBadges }
+  return { durationMin, xpEarned: xp, level, oldLevel, leveledUp, streak: streak.current, goal, awardedBadges }
+}
+
+// Inline safe wrapper to avoid a circular import with the preferences route.
+async function isNotifEnabledSafe(userId: string, type: string): Promise<boolean> {
+  try {
+    const { isNotifEnabled } = await import("@/app/api/notifications/preferences/route")
+    return await isNotifEnabled(userId, type)
+  } catch {
+    return true
+  }
 }

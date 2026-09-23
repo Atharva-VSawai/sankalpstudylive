@@ -10,6 +10,7 @@ import { Link, useRouter } from "@/lib/router"
 import { useAuth } from "@/lib/auth-context"
 import { ActivityHeatmap } from "@/components/app/activity-heatmap"
 import { StreakFreezeCard } from "@/components/app/streak-freeze-card"
+import { WeeklyStatsCard } from "@/components/app/weekly-stats-card"
 import { SessionNoteDialog } from "@/components/app/session-note-dialog"
 import { useState } from "react"
 import { NotebookPen, Clock as ClockIcon } from "lucide-react"
@@ -204,6 +205,7 @@ export function DashboardView() {
           </CardContent>
         </Card>
         <div className="space-y-4">
+          <WeeklyStatsCard />
           <StreakFreezeCard />
         </div>
       </div>

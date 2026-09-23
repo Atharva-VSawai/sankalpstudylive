@@ -11,7 +11,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Bell, Search, Settings, User, LogOut, Shield, Zap, Crown, Sparkles, LayoutDashboard, BookOpen, Users, Video, Trophy, UserPlus } from "lucide-react"
+import { Bell, Search, Settings, User, LogOut, Shield, Zap, Crown, Sparkles, LayoutDashboard, BookOpen, Users, Video, Trophy, UserPlus, NotebookPen } from "lucide-react"
 import { useState } from "react"
 import { CommandDialog } from "@/components/ui/command"
 
@@ -121,7 +121,7 @@ function CommandPalette({ open, setOpen }: { open: boolean; setOpen: (v: boolean
       </div>
       <div className="border-t">
         {[
-          ["Dashboard", "/dashboard"], ["Communities", "/communities"], ["Live rooms", "/rooms"],
+          ["Dashboard", "/dashboard"], ["Solo study", "/study"], ["Study journal", "/journal"], ["Communities", "/communities"], ["Live rooms", "/rooms"],
           ["Leaderboard", "/leaderboard"], ["Friends", "/friends"], ["Notifications", "/notifications"],
           ["My profile", "/profile"], ["Settings", "/settings"], ["Pricing", "/pricing"], ["Admin", "/admin"],
         ].map(([label, to]) => (
@@ -155,6 +155,7 @@ export function AppSidebar() {
     <aside className="hidden md:flex w-60 shrink-0 flex-col gap-1 p-3 border-r sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto scroll-thin">
       {item("/dashboard", "Dashboard", <LayoutDashboard className="size-4" />)}
       {item("/study", "Solo study", <BookOpen className="size-4" />)}
+      {item("/journal", "Study journal", <NotebookPen className="size-4" />)}
       {item("/communities", "Communities", <Users className="size-4" />)}
       {item("/rooms", "Live rooms", <Video className="size-4" />)}
       {item("/leaderboard", "Leaderboard", <Trophy className="size-4" />)}

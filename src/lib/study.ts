@@ -127,9 +127,11 @@ export async function bumpDailyGoal(userId: string, timezone: string, minutes: n
   })
 }
 
-// Awards XP + level to the profile.
+// Awards XP + level to the profile. Returns old + new level so callers can detect a level-up.
 export async function awardXp(userId: string, minutes: number) {
   const xp = minutes * XP_PER_MINUTE
+  const before = await db.profile.findUnique({ where: { userId }, select: { totalXp: true, level: true } })
+  const oldLevel = before ? levelForXp(before.totalXp) : 1
   const profile = await db.profile.update({
     where: { userId },
     data: {
@@ -140,7 +142,7 @@ export async function awardXp(userId: string, minutes: number) {
   })
   const level = levelForXp(profile.totalXp)
   await db.profile.update({ where: { userId }, data: { level } })
-  return { xp, level, totalXp: profile.totalXp, totalMinutes: profile.totalMinutes }
+  return { xp, level, totalXp: profile.totalXp, totalMinutes: profile.totalMinutes, oldLevel, leveledUp: level > oldLevel }
 }
 
 // Evaluates and grants badges. Returns the newly awarded badges.

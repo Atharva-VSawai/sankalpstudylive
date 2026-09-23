@@ -12,10 +12,12 @@ import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { useConfetti } from "@/components/app/confetti"
 import { AmbientSounds } from "@/components/app/ambient-sounds"
+import { LevelUpModal } from "@/components/app/level-up-modal"
 
 export function StudyView() {
   const { me } = useAuth()
   const confetti = useConfetti()
+  const [levelUp, setLevelUp] = useState<{ level: number; open: boolean }>({ level: 0, open: false })
   const { navigate } = useRouter()
   const qc = useQueryClient()
 
@@ -101,7 +103,7 @@ export function StudyView() {
     setRunning(false)
     if (sessionIdRef.current) {
       try {
-        const res = await api.post<{ durationMin: number; xpEarned: number; streak: number; awardedBadges: any[] }>(`/study/sessions/${sessionIdRef.current}/stop`)
+        const res = await api.post<{ durationMin: number; xpEarned: number; streak: number; awardedBadges: any[]; level: number; leveledUp: boolean }>(`/study/sessions/${sessionIdRef.current}/stop`)
         const xp = res.xpEarned ?? 0
         toast.success(`Studied ${res.durationMin ?? 0}m · +${xp} XP${res.streak ? ` · 🔥 ${res.streak}d streak` : ""}`)
         if (res.awardedBadges?.length) {
@@ -109,6 +111,10 @@ export function StudyView() {
           confetti.burst(120) // celebrate badge(s)
         } else if ((res.durationMin ?? 0) >= 25) {
           confetti.burst(60) // small celebration for a solid session
+        }
+        if (res.leveledUp && res.level) {
+          confetti.burst(140)
+          setLevelUp({ level: res.level, open: true })
         }
         qc.invalidateQueries({ queryKey: ["goals"] })
         qc.invalidateQueries({ queryKey: ["me"] })
@@ -221,6 +227,7 @@ export function StudyView() {
         </div>
       </div>
       {confetti.ConfettiLayer}
+      <LevelUpModal level={levelUp.level} open={levelUp.open} onClose={() => setLevelUp({ level: 0, open: false })} />
     </div>
   )
 }

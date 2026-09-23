@@ -13,7 +13,7 @@ import { useAuth } from "@/lib/auth-context"
 import {
   Mic, MicOff, Video, VideoOff, PhoneOff, Send, Play, Square, Coffee, Timer,
   Users, MessageSquare, Settings, Crown, Volume2, Hand, LogOut, Lock, Focus, Sparkles, Zap, Smile, Share2,
-  MonitorUp, UserPlus, Search,
+  MonitorUp, UserPlus, Search, Palette,
 } from "lucide-react"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -22,6 +22,8 @@ import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { useConfetti } from "@/components/app/confetti"
 import { AmbientSounds } from "@/components/app/ambient-sounds"
+import { LevelUpModal } from "@/components/app/level-up-modal"
+import { Whiteboard } from "@/components/app/whiteboard"
 
 type Participant = {
   userId: string
@@ -70,6 +72,8 @@ export function RoomView({ id }: { id: string }) {
   const [inviteUsername, setInviteUsername] = useState("")
   const [inviteSearch, setInviteSearch] = useState("")
   const [screenSharing, setScreenSharing] = useState(false)
+  const [levelUp, setLevelUp] = useState<{ level: number; open: boolean }>({ level: 0, open: false })
+  const [showWhiteboard, setShowWhiteboard] = useState(false)
 
   const sessionIdRef = useRef<string | null>(null)
   const esRef = useRef<EventSource | null>(null)
@@ -108,6 +112,15 @@ export function RoomView({ id }: { id: string }) {
           setTimeout(() => {
             setFloatingReactions((prev) => prev.filter((p) => p.id !== fr.id))
           }, 2600)
+        })
+        es.addEventListener("whiteboard", (e: any) => {
+          window.dispatchEvent(new CustomEvent("sankalp:whiteboard", { detail: { stroke: JSON.parse(e.data).stroke } }))
+        })
+        es.addEventListener("whiteboard_snapshot", (e: any) => {
+          window.dispatchEvent(new CustomEvent("sankalp:whiteboard_snapshot", { detail: { strokes: JSON.parse(e.data).strokes } }))
+        })
+        es.addEventListener("whiteboard_clear", () => {
+          window.dispatchEvent(new CustomEvent("sankalp:whiteboard_clear"))
         })
         es.onerror = () => { /* auto-reconnect by browser */ }
         // heartbeat
@@ -224,7 +237,7 @@ export function RoomView({ id }: { id: string }) {
   const stopStudy = async () => {
     if (!sessionIdRef.current) return
     try {
-      const res = await api.post<{ durationMin: number; xpEarned: number; level: number; streak: number; awardedBadges: any[] }>(`/study/sessions/${sessionIdRef.current}/stop`)
+      const res = await api.post<{ durationMin: number; xpEarned: number; level: number; leveledUp: boolean; streak: number; awardedBadges: any[] }>(`/study/sessions/${sessionIdRef.current}/stop`)
       sessionIdRef.current = null
       setStudyActive(false)
       const xp = res.xpEarned ?? 0
@@ -235,6 +248,10 @@ export function RoomView({ id }: { id: string }) {
         confetti.burst(120)
       } else if (mins >= 25) {
         confetti.burst(60)
+      }
+      if (res.leveledUp && res.level) {
+        confetti.burst(140)
+        setLevelUp({ level: res.level, open: true })
       }
       qc.invalidateQueries({ queryKey: ["me"] })
       qc.invalidateQueries({ queryKey: ["goals"] })
@@ -360,6 +377,9 @@ export function RoomView({ id }: { id: string }) {
             </button>
             <button onClick={() => setTab("participants")} className={cn("flex-1 py-2.5 text-sm font-medium border-b-2", tab === "participants" ? "border-primary" : "border-transparent text-muted-foreground")}>
               <Users className="size-4 inline mr-1.5" /> People ({count})
+            </button>
+            <button onClick={() => setShowWhiteboard(true)} className="px-3 py-2.5 text-sm font-medium border-b-2 border-transparent text-muted-foreground hover:text-brand-emerald" title="Open shared whiteboard">
+              <Palette className="size-4 inline" />
             </button>
           </div>
 
@@ -519,6 +539,8 @@ export function RoomView({ id }: { id: string }) {
       </div>
 
       {confetti.ConfettiLayer}
+      <LevelUpModal level={levelUp.level} open={levelUp.open} onClose={() => setLevelUp({ level: 0, open: false })} />
+      {showWhiteboard && <Whiteboard roomId={id} onOpenChange={setShowWhiteboard} />}
     </div>
   )
 }

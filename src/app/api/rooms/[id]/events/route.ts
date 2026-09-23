@@ -31,10 +31,18 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       send({ type: "presence", participants: listParticipants(id) })
       send({ type: "history", messages: listMessages(id, 50) })
       send({ type: "timer", timer: getTimer(id) })
-      const { listReactions } = await import("@/lib/presence")
+      const { listReactions, listWhiteboardStrokes } = await import("@/lib/presence")
       send({ type: "reactions", reactions: listReactions(id) })
+      send({ type: "whiteboard_snapshot", strokes: listWhiteboardStrokes(id) })
 
-      const unsub = subscribe(id, send)
+      const unsub = subscribe(id, (evt: any) => {
+        // For whiteboard_undo, send a fresh snapshot so all clients resync.
+        if (evt.type === "whiteboard_undo") {
+          send({ type: "whiteboard_snapshot", strokes: listWhiteboardStrokes(id) })
+        } else {
+          send(evt)
+        }
+      })
 
       // heartbeat to keep connection alive + reap stale participants
       const hb = setInterval(() => {

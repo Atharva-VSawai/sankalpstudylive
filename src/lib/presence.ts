@@ -159,6 +159,61 @@ export function listReactions(roomId: string, limit = 30): Reaction[] {
   return ((r as any).reactions ?? []).slice(-limit)
 }
 
+// Shared whiteboard strokes (ephemeral, kept small for late joiners).
+// Production: would use a CRDT; this is a simple append-only stroke list.
+export type WhiteboardStroke = {
+  id: string
+  userId: string
+  username: string
+  color: string
+  points: { x: number; y: number }[] // normalized 0..1
+  createdAt: number
+}
+
+export function addWhiteboardStroke(roomId: string, stroke: Omit<WhiteboardStroke, "id" | "createdAt">): WhiteboardStroke {
+  const r = getRoom(roomId)
+  const s: WhiteboardStroke = {
+    ...stroke,
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    createdAt: Date.now(),
+  }
+  ;(r as any).whiteboard = (r as any).whiteboard ?? []
+  ;(r as any).whiteboard.push(s)
+  // cap at 200 strokes to keep memory bounded
+  if ((r as any).whiteboard.length > 200) (r as any).whiteboard = (r as any).whiteboard.slice(-200)
+  emit(roomId, { type: "whiteboard", stroke: s })
+  return s
+}
+
+export function listWhiteboardStrokes(roomId: string): WhiteboardStroke[] {
+  const r = rooms.get(roomId)
+  if (!r) return []
+  return (r as any).whiteboard ?? []
+}
+
+export function clearWhiteboard(roomId: string, userId: string) {
+  const r = rooms.get(roomId)
+  if (!r) return
+  ;(r as any).whiteboard = []
+  emit(roomId, { type: "whiteboard_clear", userId })
+}
+
+// Undo the most recent stroke by `userId` (for the whiteboard).
+export function undoWhiteboardStroke(roomId: string, userId: string): WhiteboardStroke | null {
+  const r = rooms.get(roomId)
+  if (!r) return null
+  const strokes: WhiteboardStroke[] = (r as any).whiteboard ?? []
+  // find last index by this user
+  let lastIdx = -1
+  for (let i = strokes.length - 1; i >= 0; i--) {
+    if (strokes[i].userId === userId) { lastIdx = i; break }
+  }
+  if (lastIdx === -1) return null
+  const removed = strokes.splice(lastIdx, 1)[0]
+  emit(roomId, { type: "whiteboard_undo", strokeId: removed.id, userId })
+  return removed
+}
+
 export function setTimer(
   roomId: string,
   mode: "focus" | "break" | "idle",
