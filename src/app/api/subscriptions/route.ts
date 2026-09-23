@@ -46,6 +46,13 @@ export async function POST(req: NextRequest) {
   if (!isValidPlan(plan)) return badRequest("Invalid plan")
   if (plan === "free") return badRequest("Cannot purchase the free plan")
 
+  // ── Server-side check: block if user already has an active paid plan ──
+  const existingSub = await db.subscription.findUnique({ where: { userId: ctx.userId } })
+  if (isPaidPlanActive(existingSub)) {
+    const expiresAt = existingSub?.expiresAt ? new Date(existingSub.expiresAt).toLocaleDateString("en-IN", { month: "short", day: "numeric" }) : "—"
+    return ok({ error: { code: "ACTIVE_PLAN_EXISTS", message: `Your ${existingSub?.plan ?? "plan"} is active until ${expiresAt}. You can purchase another plan after that.` } }, 403) as any
+  }
+
   const planDef = PLANS[plan as PlanId]
   const expiresAt = computeExpiry(plan as PlanId)
   const renewsAt = computeRenewal(plan as PlanId)
@@ -58,7 +65,6 @@ export async function POST(req: NextRequest) {
       currency: "INR",
       plan,
       provider: "razorpay",
-      providerRef: `order_${Date.now()}_${ctx.userId.slice(0, 6)}`,
       status: "pending",
     },
   })
@@ -66,11 +72,11 @@ export async function POST(req: NextRequest) {
   // ── SANDBOX: simulate provider confirmation ──
   // PRODUCTION: the client redirects to Razorpay checkout, Razorpay calls
   // our webhook (/api/payments/verify), which verifies the signature and
-  // marks the payment as "paid" + activates the subscription.
-  // Here we skip the checkout and mark as paid immediately.
+  // marks the payment as "captured" + activates the subscription.
+  // Here we skip the checkout and mark as captured immediately.
   await db.payment.update({
     where: { id: payment.id },
-    data: { status: "paid", providerRef: `pay_${Date.now()}_${ctx.userId.slice(0, 6)}` },
+    data: { status: "captured", entitlementStart: new Date(), entitlementEnd: expiresAt },
   })
 
   // ── Activate the subscription (server-side) ──

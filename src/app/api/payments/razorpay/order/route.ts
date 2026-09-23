@@ -1,8 +1,8 @@
 import { NextRequest } from "next/server"
 import { db } from "@/lib/db"
-import { ok, unauthorized, badRequest, getAuth } from "@/lib/api"
+import { ok, unauthorized, badRequest, forbidden, getAuth } from "@/lib/api"
 import { createOrder } from "@/lib/razorpay"
-import { PLANS, PlanId } from "@/lib/pricing"
+import { PLANS, PlanId, isPaidPlanActive } from "@/lib/pricing"
 import { rateLimit } from "@/lib/ratelimit"
 
 // POST /api/payments/razorpay/order
@@ -35,6 +35,16 @@ export async function POST(req: NextRequest) {
   }
   const planId = planMap[planCode]
   const planDef = PLANS[planId]
+
+  // ── Server-side check: block purchases if user already has an active paid plan ──
+  const existingSub = await db.subscription.findUnique({ where: { userId: ctx.userId } })
+  if (isPaidPlanActive(existingSub)) {
+    const expiresAt = existingSub?.expiresAt ? new Date(existingSub.expiresAt).toLocaleDateString("en-IN", { month: "short", day: "numeric" }) : "—"
+    return forbidden(
+      `Your ${existingSub?.plan ?? "plan"} is active until ${expiresAt}. You can purchase another plan after that.`,
+      "ACTIVE_PLAN_EXISTS"
+    )
+  }
 
   // Server determines the amount — never trust client
   const amountPaise = planDef.price

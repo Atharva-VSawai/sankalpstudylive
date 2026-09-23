@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/lib/auth-context"
 import { useRouter } from "@/lib/router"
-import { Check, Crown, Zap, X, Clock, Calendar, Infinity as InfinityIcon, Loader2 } from "lucide-react"
+import { Check, Crown, Zap, X, Clock, Calendar, Infinity as InfinityIcon, Loader2, Lock } from "lucide-react"
 import { toast } from "sonner"
 import { useState } from "react"
 
@@ -311,6 +311,17 @@ export function PricingView() {
                     <Button className="w-full" variant="outline" disabled={!me} onClick={() => navigate("/dashboard")}>
                       {me ? "Go to dashboard" : "Sign up free"}
                     </Button>
+                  ) : hasPaidAccess && plan.planCode ? (
+                    // User has an active paid plan — block purchasing other plans
+                    <div className="space-y-1">
+                      <Button className="w-full" variant="outline" disabled>
+                        <Lock className="size-4" /> Active Plan
+                      </Button>
+                      <p className="text-[10px] text-muted-foreground text-center">
+                        Your {subData?.planName ?? "plan"} is active until {subData?.planExpiresAt ? new Date(subData.planExpiresAt).toLocaleDateString("en-IN", { month: "short", day: "numeric" }) : "—"}.
+                        You can purchase after that.
+                      </p>
+                    </div>
                   ) : (
                     <Button
                       className="w-full"
@@ -318,7 +329,7 @@ export function PricingView() {
                       disabled={!me || purchasing !== null}
                       onClick={() => handlePurchase(plan.planCode)}
                     >
-                      {purchasing === plan.planCode ? (
+                      {purchasing !== null && purchasing === plan.planCode ? (
                         <><Loader2 className="size-4 animate-spin" /> Processing…</>
                       ) : plan.cta}
                     </Button>

@@ -82,7 +82,7 @@ async function main() {
       },
     })
     await db.streak.create({ data: { userId: user.id } })
-    await db.subscription.create({ data: { userId: user.id, plan: u.role === "admin" ? "pro" : "free" } })
+    await db.subscription.create({ data: { userId: user.id, plan: "free" } })
   }
 
   // Give demo users some study history so leaderboards look alive (but truthful: these are demo accounts, clearly labeled)

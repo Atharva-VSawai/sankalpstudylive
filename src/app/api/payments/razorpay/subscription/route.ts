@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server"
 import { db } from "@/lib/db"
-import { ok, unauthorized, badRequest, getAuth } from "@/lib/api"
+import { ok, unauthorized, badRequest, forbidden, getAuth } from "@/lib/api"
 import { createSubscription } from "@/lib/razorpay"
+import { isPaidPlanActive } from "@/lib/pricing"
 import { rateLimit } from "@/lib/ratelimit"
 
 // POST /api/payments/razorpay/subscription
@@ -14,15 +15,19 @@ export async function POST(req: NextRequest) {
   const rl = rateLimit(req, { limit: 5, windowMs: 60000, key: "rzp-sub" })
   if (!rl.ok) return badRequest("Too many requests.", "RATE_LIMITED")
 
+  // ── Server-side check: block if user already has an active paid plan ──
+  const existing = await db.subscription.findUnique({ where: { userId: ctx.userId } })
+  if (isPaidPlanActive(existing)) {
+    const expiresAt = existing?.expiresAt ? new Date(existing.expiresAt).toLocaleDateString("en-IN", { month: "short", day: "numeric" }) : "—"
+    return forbidden(
+      `Your ${existing?.plan ?? "plan"} is active until ${expiresAt}. You can purchase another plan after that.`,
+      "ACTIVE_PLAN_EXISTS"
+    )
+  }
+
   const planId = process.env.RAZORPAY_MONTHLY_PLAN_ID
   if (!planId) {
     return badRequest("Monthly subscription plan not configured. Contact support.", "PLAN_NOT_CONFIGURED")
-  }
-
-  // Check if user already has an active monthly subscription
-  const existing = await db.subscription.findUnique({ where: { userId: ctx.userId } })
-  if (existing && existing.plan === "monthly" && existing.status === "active") {
-    return badRequest("You already have an active monthly subscription", "ALREADY_SUBSCRIBED")
   }
 
   // Create a Payment record (pending)
