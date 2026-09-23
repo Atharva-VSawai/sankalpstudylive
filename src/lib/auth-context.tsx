@@ -1,7 +1,7 @@
 "use client"
 
 import { createContext, useContext, useEffect, useState, useCallback, useMemo, ReactNode } from "react"
-import { createBrowserClient } from "@/lib/supabase"
+import { createBrowserClient, isSupabaseConfigured } from "@/lib/supabase"
 import { api, setToken, getToken, ApiError } from "@/lib/api-client"
 
 export type Me = {
@@ -68,8 +68,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Set the token for API client
         setToken(session.session.access_token)
         // Fetch user profile from our API
-        const data = await api.get<Me>("/auth/me")
-        setMe(data)
+        try {
+          const data = await api.get<Me>("/auth/me")
+          setMe(data)
+        } catch (e) {
+          // If our API returns 401, the Supabase-auth'd user may not exist in
+          // our DB yet (first Google OAuth login, or first Supabase email
+          // signup). Call /auth/sync to create them, then re-fetch /auth/me.
+          if (e instanceof ApiError && e.status === 401 && isSupabaseConfigured) {
+            try {
+              const { data: userData } = await supabase.auth.getUser()
+              if (userData?.user) {
+                await api.post("/auth/sync", {
+                  email: userData.user.email,
+                  supabaseId: userData.user.id,
+                })
+                const data = await api.get<Me>("/auth/me")
+                setMe(data)
+                return
+              }
+            } catch {
+              setToken(null)
+              setMe(null)
+            }
+          } else {
+            throw e
+          }
+        }
       } else {
         // ── Sankalp signed session token fallback ──
         // The local /api/auth/login endpoint (sandbox stand-in for Supabase Auth)
@@ -121,22 +146,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [fetchMe, supabase])
 
   // ── Login via Supabase Auth (with Sankalp local-login fallback) ──
-  // Tries Supabase Auth first (preserves production behavior). If Supabase
-  // has no account for this email/password (e.g. seeded sandbox users that
-  // exist only in our local DB), falls back to /api/auth/login which issues
-  // a Sankalp signed session token.
+  // If Supabase is configured, try Supabase Auth first (this is the production
+  // path — real Supabase email/password users). If Supabase is NOT configured,
+  // or if Supabase returns an error (e.g. the user only exists in our local DB
+  // like the seeded demo accounts), fall back to /api/auth/login which issues a
+  // Sankalp signed session token. This makes the app work with OR without
+  // Supabase configured — no code changes needed to switch.
   const login = useCallback(async (email: string, password: string) => {
-    try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password })
-      if (!error) {
-        // The auth state change listener will fetchMe automatically
-        // But also do it immediately for UI responsiveness
-        await fetchMe()
-        return
+    // Only try Supabase if it's configured. Otherwise go straight to the
+    // Sankalp local login — avoids a pointless round-trip + error toast.
+    if (isSupabaseConfigured) {
+      try {
+        const { error } = await supabase.auth.signInWithPassword({ email, password })
+        if (!error) {
+          // The auth state change listener will fetchMe automatically
+          // But also do it immediately for UI responsiveness
+          await fetchMe()
+          return
+        }
+        // Fall through to local login on any Supabase error
+      } catch {
+        // Fall through to local login on Supabase client failure
       }
-      // Fall through to local login on any Supabase error
-    } catch {
-      // Fall through to local login on Supabase client failure
     }
 
     // ── Sankalp local-login fallback ──
@@ -149,31 +180,60 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [supabase, fetchMe])
 
-  // ── Signup via Supabase Auth ──
+  // ── Signup via Supabase Auth (with Sankalp local-signup fallback) ──
+  // If Supabase is configured, use it (this is the production path — real
+  // Supabase email/password signup, with email confirmation if enabled in the
+  // Supabase dashboard). If Supabase is NOT configured, or if Supabase requires
+  // email confirmation (no immediate session), fall back to the Sankalp local
+  // /api/auth/signup endpoint which creates the user + issues a Sankalp signed
+  // session token immediately (no email confirmation needed). This makes the
+  // app work with OR without Supabase configured.
   const signup = useCallback(async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({ email, password })
-    if (error) throw new Error(error.message)
-    // After signup, Supabase may auto-sign-in (depending on email confirmation settings)
-    // Try to get session
-    const { data } = await supabase.auth.getSession()
-    if (data?.session?.access_token) {
-      setToken(data.session.access_token)
-      // Sync profile with our backend
+    if (isSupabaseConfigured) {
       try {
-        await api.post("/auth/sync", { email })
-      } catch {}
+        const { error } = await supabase.auth.signUp({ email, password })
+        if (!error) {
+          // After signup, Supabase may auto-sign-in (if email confirmation is
+          // disabled) or require email confirmation (if enabled).
+          const { data } = await supabase.auth.getSession()
+          if (data?.session?.access_token) {
+            setToken(data.session.access_token)
+            // Sync profile with our backend
+            try {
+              await api.post("/auth/sync", { email })
+            } catch {}
+            await fetchMe()
+            return
+          }
+          // Email confirmation required — fall through to local signup so the
+          // user can use the app immediately without waiting for email. The
+          // Supabase account still exists and can be used after confirmation.
+        }
+        // Fall through to local signup on any Supabase error
+      } catch {
+        // Fall through to local signup on Supabase client failure
+      }
+    }
+
+    // ── Sankalp local-signup fallback ──
+    try {
+      const res = await api.post<{ token: string }>("/auth/signup", { email, password })
+      setToken(res.token)
       await fetchMe()
-    } else {
-      // Email confirmation required — set loading false
-      setLoading(false)
-      throw new Error("Check your email to confirm your account")
+    } catch (e: any) {
+      throw new Error(e?.message || "Sign up failed")
     }
   }, [supabase, fetchMe])
 
   // ── Google OAuth via Supabase ──
-  // Requires Google provider to be enabled in Supabase Dashboard → Authentication → Providers → Google.
-  // If not enabled, shows a clear error instead of a generic crash.
+  // Requires Supabase to be configured AND the Google provider to be enabled
+  // in Supabase Dashboard → Authentication → Providers → Google. If Supabase
+  // is not configured at all, or the Google provider is not enabled, shows a
+  // clear actionable error instead of a generic crash.
   const loginWithGoogle = useCallback(async () => {
+    if (!isSupabaseConfigured) {
+      throw new Error("Google sign-in requires Supabase to be configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY to your environment, then enable the Google provider in Supabase Dashboard → Authentication → Providers → Google.")
+    }
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
