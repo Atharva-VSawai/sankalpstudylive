@@ -6,11 +6,12 @@ import { api, getToken } from "@/lib/api-client"
 import { Avatar } from "@/components/app/brand"
 import { useRouter, Link } from "@/lib/router"
 import { useAuth } from "@/lib/auth-context"
-import { Video, VideoOff, PhoneOff, Play, Pause, Square, RotateCcw, Settings2, ChevronLeft, Coffee, Timer as TimerIcon, Headphones, SkipForward, Pin, PinOff, Maximize2, Minimize2, Clock, Lock, Zap, Calendar, Crown, ArrowRight, X } from "lucide-react"
+import { Video, VideoOff, PhoneOff, Play, Pause, Square, RotateCcw, Settings2, ChevronLeft, Coffee, Timer as TimerIcon, Headphones, SkipForward, Pin, PinOff, Maximize2, Minimize2, Clock, Lock, Zap, Calendar, Crown, ArrowRight, X, Sparkles, Activity } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { AmbientSounds } from "@/components/app/ambient-sounds"
-import { Room, RoomEvent, Track, Participant, ParticipantEvent, ConnectionState } from "livekit-client"
+import { Room, RoomEvent, Track, Participant, ParticipantEvent, ConnectionState, RemoteTrackPublication } from "livekit-client"
+import { buildRoomOptions, applyPolicyToAllRemoteTracks, applyRemoteQualityCap, pauseRemoteTrack, resumeRemoteTrack, countSubscribedRemoteVideoTracks, ClientVideoPolicy } from "@/lib/video-quality-client"
 
 // ── Types ──
 type PomodoroConfig = { focusMin: number; breakMin: number; longBreakMin: number; rounds: number }
@@ -70,6 +71,7 @@ export function RoomView({ id }: { id: string }) {
     windowResetsAt: string
     hasActiveSession: boolean
     warningShown: boolean
+    videoQuality: ClientVideoPolicy
   }
   const [entitlement, setEntitlement] = useState<Ent | null>(null)
   // Local tick: decremented every second for smooth display. Re-synced to the
@@ -80,6 +82,21 @@ export function RoomView({ id }: { id: string }) {
   const [exhausted, setExhausted] = useState(false)
   const [showWarning, setShowWarning] = useState(false)
   const warningShownRef = useRef(false)
+
+  // ── 5-minute video-quality upsell for free users ──
+  // Shown ONCE per room session, 5 minutes AFTER room entry. This is DISTINCT
+  // from the 5-minute-remaining free-allowance warning (showWarning above).
+  // The quality upsell does NOT add minutes, reset the allowance, or interrupt
+  // the room — it's a non-blocking upgrade CTA for better video quality.
+  const [showQualityUpsell, setShowQualityUpsell] = useState(false)
+  const qualityUpsellShownRef = useRef(false)
+  const roomEnteredAtRef = useRef<number | null>(null)
+
+  // ── Dev diagnostics (participant count, subscribed tracks, visible count) ──
+  // Computed from the LiveKit room + IntersectionObserver state. Only shown in
+  // development via a small overlay; no secrets are logged.
+  const [visibleCount, setVisibleCount] = useState(0)
+  const [subscribedTrackCount, setSubscribedTrackCount] = useState(0)
 
   // ── Pomodoro state ──
   const { data: pomoData } = useQuery({
@@ -126,15 +143,22 @@ export function RoomView({ id }: { id: string }) {
           setDisplayedFreeSeconds(tokenRes.entitlement.remainingFreeSeconds)
           warningShownRef.current = tokenRes.entitlement.warningShown
         }
+        // The server-authoritative video-quality policy. The client applies
+        // these caps via LiveKit APIs; a malicious client that changes these
+        // values in DevTools only affects LOCAL display quality/bandwidth,
+        // not access (the server still enforces the real entitlement).
+        const policy = tokenRes.entitlement.videoQuality
 
-        // 2. Create LiveKit Room + connect
-        const lkRoom = new Room({
-          adaptiveStream: true,
-          dynacast: true,
-        })
+        // 2. Create LiveKit Room + connect.
+        //    adaptiveStream + dynacast + simulcast + 720p local capture are all
+        //    configured from the server-authoritative policy. This is the ONLY
+        //    place the Room is constructed — never re-create it on re-render.
+        const lkRoom = new Room(buildRoomOptions(policy))
         lkRoomRef.current = lkRoom
 
-        // 3. Connect to LiveKit Cloud
+        // 3. Connect to LiveKit Cloud (real global media transport — never
+        //    localhost/127.0.0.1; the serverUrl comes from the server token
+        //    response and points to LiveKit Cloud).
         await lkRoom.connect(tokenRes.serverUrl, tokenRes.token)
         if (cancelled) { lkRoom.disconnect(); return }
 
@@ -146,12 +170,21 @@ export function RoomView({ id }: { id: string }) {
           // Include local participant
           if (lkRoom.localParticipant) all.unshift(lkRoom.localParticipant)
           setParticipants(all)
+          // Refresh subscribed-track count for dev diagnostics.
+          setSubscribedTrackCount(countSubscribedRemoteVideoTracks(lkRoom))
         }
         updateParticipants()
 
         lkRoom.on(RoomEvent.ParticipantConnected, updateParticipants)
         lkRoom.on(RoomEvent.ParticipantDisconnected, updateParticipants)
-        lkRoom.on(RoomEvent.TrackSubscribed, updateParticipants)
+        lkRoom.on(RoomEvent.TrackSubscribed, (pub, p) => {
+          updateParticipants()
+          // Apply the subscriber-side quality cap to every newly subscribed
+          // remote camera track. This is the key bandwidth/cost control: each
+          // subscriber receives at most the policy's max quality layer, not the
+          // publisher's full HD stream.
+          applyRemoteQualityCap(pub as RemoteTrackPublication, policy)
+        })
         lkRoom.on(RoomEvent.TrackUnsubscribed, updateParticipants)
         lkRoom.on(RoomEvent.ConnectionStateChanged, (state) => {
           setConnectionState(state)
@@ -164,12 +197,28 @@ export function RoomView({ id }: { id: string }) {
           }
         })
         lkRoom.on(RoomEvent.Reconnecting, () => setConnectionState(ConnectionState.Reconnecting))
-        lkRoom.on(RoomEvent.Reconnected, () => setConnectionState(ConnectionState.Connected))
+        lkRoom.on(RoomEvent.Reconnected, () => {
+          setConnectionState(ConnectionState.Connected)
+          // Re-apply the quality caps after reconnect (tracks may have been
+          // re-subscribed; re-assert the policy so the server forwards the
+          // correct layer).
+          applyPolicyToAllRemoteTracks(lkRoom, policy)
+        })
 
         // Re-sync connection state AFTER all listeners are registered.
         setConnectionState(lkRoom.state)
 
-        // 5. Heartbeat: pings the server every 20s. The server recomputes the
+        // Apply the quality cap to all remote tracks that already existed
+        // before our TrackSubscribed listener was registered (race safety).
+        applyPolicyToAllRemoteTracks(lkRoom, policy)
+
+        // 5. Record room-entry time for the 5-min video-quality upsell (free
+        //    users only). Paid users never see the upsell.
+        if (!tokenRes.hasPaidPlan) {
+          roomEnteredAtRef.current = Date.now()
+        }
+
+        // 6. Heartbeat: pings the server every 20s. The server recomputes the
         // entitlement and returns it so the client can re-sync its countdown.
         // If the server reports exhausted=true (free allowance hit 0), the
         // client disconnects from LiveKit and shows the purchase screen — this
@@ -271,6 +320,24 @@ export function RoomView({ id }: { id: string }) {
       api.post("/entitlement/warning-shown", {}).catch(() => {})
     }
   }, [displayedFreeSeconds, entitlement])
+
+  // ── 5-minute video-quality upsell for free users (shown ONCE per room session) ──
+  // This is DISTINCT from the 5-minute-remaining free-allowance warning above.
+  // This triggers 5 minutes AFTER room entry (roomEnteredAtRef), NOT based on
+  // remaining allowance. It's a non-blocking upgrade CTA for better video
+  // quality — it does NOT add minutes, reset the allowance, or interrupt the
+  // room. Paid users never see it. It shows at most once per room session.
+  useEffect(() => {
+    if (!entitlement || entitlement.isPaid) return
+    if (qualityUpsellShownRef.current) return
+    if (roomEnteredAtRef.current === null) return
+    // 5 minutes after entry = 300_000 ms
+    const elapsed = Date.now() - roomEnteredAtRef.current
+    if (elapsed >= 300_000) {
+      setShowQualityUpsell(true)
+      qualityUpsellShownRef.current = true
+    }
+  }, [entitlement, displayedFreeSeconds]) // re-check on the 1s countdown tick
 
   // ── At 00:00, flag exhausted so the purchase overlay shows ──
   // The heartbeat server-side enforcement (exhausted=true) is the real close;
@@ -418,7 +485,7 @@ export function RoomView({ id }: { id: string }) {
         </div>
       )}
 
-      {/* ── Participant grid (real LiveKit participants) ── */}
+      {/* ── Participant grid (real LiveKit participants, virtualized) ── */}
       <div className="flex-1 overflow-hidden p-2 md:p-3">
         {!isConnected ? (
           <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
@@ -438,21 +505,20 @@ export function RoomView({ id }: { id: string }) {
             onPin={(pid) => setPinnedId(pid)}
           />
         ) : (
-          /* ── Default responsive grid ── */
-          <div className="h-full w-full">
-            <div className={cn("grid h-full w-full mx-auto gap-2 md:gap-3 auto-rows-fr", responsiveGridClass(count))}>
-              {participants.map((p) => (
-                <ParticipantTile
-                  key={p.identity}
-                  participant={p}
-                  isMe={p.identity === me?.id}
-                  isPinned={false}
-                  onPin={(pid) => setPinnedId(pid)}
-                  onUnpin={() => setPinnedId(null)}
-                />
-              ))}
-            </div>
-          </div>
+          /* ── Default responsive grid (virtualized for large rooms) ──
+              For ≤ VIRTUALIZATION_THRESHOLD participants, render all tiles
+              (simple, and IntersectionObserver handles off-screen pausing).
+              For larger rooms, render only the visible window + overscan so
+              we never create 1000+ <video> DOM elements. The participant count
+              in the header still reflects the REAL LiveKit count. */
+          <VirtualizedParticipantGrid
+            participants={participants}
+            myId={me?.id}
+            onPin={(pid) => setPinnedId(pid)}
+            onUnpin={() => setPinnedId(null)}
+            onVisibleCountChange={setVisibleCount}
+            policy={entitlement?.videoQuality}
+          />
         )}
       </div>
 
@@ -496,6 +562,29 @@ export function RoomView({ id }: { id: string }) {
           resetsAt={entitlement?.windowResetsAt}
           onClose={() => setShowWarning(false)}
           onUpgrade={() => { setShowWarning(false); navigate("/pricing") }}
+        />
+      )}
+
+      {/* ── 5-minute video-quality upsell (free users, shown ONCE per room session) ── */}
+      {/* DISTINCT from the 5-min-remaining warning above. Non-blocking; does NOT
+          add minutes, reset the allowance, or interrupt the room. */}
+      {showQualityUpsell && !entitlement?.isPaid && !exhausted && !showWarning && (
+        <QualityUpsellModal
+          onClose={() => setShowQualityUpsell(false)}
+          onUpgrade={() => { setShowQualityUpsell(false); navigate("/pricing") }}
+        />
+      )}
+
+      {/* ── Dev diagnostics overlay (dev only, no secrets) ── */}
+      {process.env.NODE_ENV !== "production" && entitlement && (
+        <DevDiagnostics
+          connectionState={connectionState}
+          participantCount={count}
+          subscribedTrackCount={subscribedTrackCount}
+          visibleCount={visibleCount}
+          tier={entitlement.videoQuality.tier}
+          remoteMax={entitlement.videoQuality.remoteGridMaxQuality}
+          localPreset={entitlement.videoQuality.localCapturePreset}
         />
       )}
 
@@ -690,6 +779,299 @@ function PinnedLayout({
               </div>
             ))}
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Virtualized participant grid ──
+// For rooms up to VIRTUALIZATION_THRESHOLD participants, render every tile in
+// a CSS grid. IntersectionObserver (via VisibleTile) pauses off-screen remote
+// tracks so LiveKit Adaptive Stream + our explicit pause keep bandwidth low.
+//
+// For larger rooms, render ONLY the visible window of tiles (with a small
+// overscan) inside a scroll container. The participant count in the header
+// still reflects the REAL LiveKit count; only the rendered <video> elements
+// are windowed. This prevents 1000+ <video> DOM elements from crashing the
+// browser. Remote tracks for off-screen tiles are explicitly paused via
+// pauseRemoteTrack so LiveKit stops forwarding their media.
+const VIRTUALIZATION_THRESHOLD = 60 // above this, window the grid
+const OVERSCAN = 6 // extra rows/cols rendered beyond the visible viewport
+
+function VirtualizedParticipantGrid({
+  participants,
+  myId,
+  onPin,
+  onUnpin,
+  onVisibleCountChange,
+  policy,
+}: {
+  participants: Participant[]
+  myId?: string
+  onPin: (id: string) => void
+  onUnpin: () => void
+  onVisibleCountChange: (n: number) => void
+  policy?: ClientVideoPolicy
+}) {
+  const count = participants.length
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  // ── Large-room windowing state (always declared; only used when count > threshold) ──
+  const cols = useMemo(() => columnsForCount(count), [count])
+  const rows = Math.ceil(count / cols)
+  const [visibleRange, setVisibleRange] = useState<{ start: number; end: number }>({ start: 0, end: Math.min(rows, OVERSCAN * 2 + 1) })
+
+  // Scroll handler for large-room windowing. Only attaches the listener when
+  // count > threshold (the effect is a no-op otherwise — containerRef is null
+  // because the small-room branch doesn't use it).
+  useEffect(() => {
+    if (count <= VIRTUALIZATION_THRESHOLD) return
+    const el = containerRef.current
+    if (!el) return
+    const onScroll = () => {
+      const rowHeight = el.clientHeight / Math.max(1, Math.ceil(el.clientHeight / 120))
+      const firstVisible = Math.max(0, Math.floor(el.scrollTop / Math.max(1, rowHeight)) - OVERSCAN)
+      const lastVisible = Math.min(rows, firstVisible + Math.ceil(el.clientHeight / Math.max(1, rowHeight)) + OVERSCAN * 2)
+      setVisibleRange((prev) => (prev.start === firstVisible && prev.end === lastVisible ? prev : { start: firstVisible, end: lastVisible }))
+    }
+    onScroll()
+    el.addEventListener("scroll", onScroll, { passive: true })
+    return () => el.removeEventListener("scroll", onScroll)
+  }, [rows, count])
+
+  // Count visible tiles for diagnostics. For small rooms, all tiles are visible.
+  useEffect(() => {
+    if (count <= VIRTUALIZATION_THRESHOLD) {
+      onVisibleCountChange(count)
+      return
+    }
+    const visibleTiles = (visibleRange.end - visibleRange.start) * cols
+    onVisibleCountChange(Math.min(visibleTiles, count))
+  }, [visibleRange, cols, count, onVisibleCountChange])
+
+  // ── Per-tile visibility callback (shared by both branches) ──
+  const handleTileVisible = useCallback((p: Participant, visible: boolean) => {
+    const pub = p.getTrackPublication(Track.Source.Camera) as RemoteTrackPublication | undefined
+    if (!pub) return
+    if (visible) resumeRemoteTrack(pub, policy ?? VIDEO_QUALITY_FALLBACK)
+    else pauseRemoteTrack(pub)
+  }, [policy])
+
+  // ── Small rooms: render all tiles in a CSS grid. ──
+  // IntersectionObserver (via VisibleTile) pauses off-screen remote tracks so
+  // LiveKit Adaptive Stream + our explicit pause keep bandwidth low.
+  if (count <= VIRTUALIZATION_THRESHOLD) {
+    return (
+      <div className="h-full w-full">
+        <div className={cn("grid h-full w-full mx-auto gap-2 md:gap-3 auto-rows-fr", responsiveGridClass(count))}>
+          {participants.map((p) => (
+            <VisibleTile
+              key={p.identity}
+              participant={p}
+              isMe={p.identity === myId}
+              onPin={onPin}
+              onUnpin={onUnpin}
+              onVisibleChange={(visible) => handleTileVisible(p, visible)}
+            />
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  // ── Large rooms: render only the visible window + overscan. ──
+  // Off-screen rows are spacer divs (no <video> elements). The participant
+  // count in the header still reflects the REAL LiveKit count; only the
+  // rendered <video> elements are windowed.
+  return (
+    <div ref={containerRef} className="h-full w-full overflow-y-auto scroll-thin">
+      <div className={cn("grid w-full mx-auto gap-2 md:gap-3", responsiveGridClass(count))} style={{ gridAutoRows: "minmax(120px, 1fr)" }}>
+        {Array.from({ length: rows }).map((_, rowIdx) => {
+          const startTile = rowIdx * cols
+          const endTile = Math.min(count, startTile + cols)
+          if (rowIdx < visibleRange.start || rowIdx >= visibleRange.end) {
+            return Array.from({ length: cols }).map((_, c) => (
+              <div key={`spacer-${rowIdx}-${c}`} className="rounded-xl border bg-card/30" />
+            ))
+          }
+          return Array.from({ length: cols }).map((_, c) => {
+            const idx = startTile + c
+            if (idx >= endTile) return <div key={`empty-${rowIdx}-${c}`} />
+            const p = participants[idx]
+            return (
+              <VisibleTile
+                key={p.identity}
+                participant={p}
+                isMe={p.identity === myId}
+                onPin={onPin}
+                onUnpin={onUnpin}
+                onVisibleChange={(visible) => handleTileVisible(p, visible)}
+              />
+            )
+          })
+        })}
+      </div>
+    </div>
+  )
+}
+
+// Fallback policy used when the server policy isn't loaded yet (e.g. during
+// the brief window between connect and the first token response). Defaults to
+// the free (most conservative) cap.
+const VIDEO_QUALITY_FALLBACK: ClientVideoPolicy = {
+  tier: "free",
+  remoteGridMaxQuality: "LOW",
+  remoteGridMaxHeightPx: 240,
+  localCapturePreset: "h720",
+}
+
+// ── VisibleTile: wraps ParticipantTile with an IntersectionObserver. ──
+// Reports visibility changes to the parent so the parent can pause/resume the
+// remote LiveKit track. This COMPLEMENTS (does not replace) LiveKit Adaptive
+// Stream — Adaptive Stream pauses delivery when the <video> element is not
+// visible (display:none / detached); this observer also handles "in the DOM
+// but scrolled out of the viewport" which Adaptive Stream may not catch.
+function VisibleTile({
+  participant,
+  isMe,
+  isPinned = false,
+  onPin,
+  onUnpin,
+  onVisibleChange,
+}: {
+  participant: Participant
+  isMe?: boolean
+  isPinned?: boolean
+  onPin?: (id: string) => void
+  onUnpin?: () => void
+  onVisibleChange?: (visible: boolean) => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el || typeof IntersectionObserver === "undefined") {
+      // SSR / no IntersectionObserver: assume visible.
+      onVisibleChange?.(true)
+      return
+    }
+    let stable = true
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (!stable) return
+        for (const e of entries) {
+          // Use a small threshold so tiny viewport scrolls don't flap.
+          onVisibleChange?.(e.isIntersecting && e.intersectionRatio > 0.05)
+        }
+      },
+      { threshold: [0, 0.05, 0.5, 1] }
+    )
+    io.observe(el)
+    return () => { stable = false; io.disconnect() }
+  }, [onVisibleChange])
+  return (
+    <div ref={ref} className="min-h-0 w-full h-full">
+      <ParticipantTile
+        participant={participant}
+        isMe={isMe}
+        isPinned={isPinned}
+        onPin={onPin}
+        onUnpin={onUnpin}
+      />
+    </div>
+  )
+}
+
+// ── Columns for a participant count (mirrors responsiveGridClass for large counts) ──
+function columnsForCount(n: number): number {
+  if (n <= 1) return 1
+  if (n === 2) return 2
+  if (n <= 4) return 2
+  if (n <= 6) return 3
+  if (n <= 9) return 3
+  if (n <= 12) return 4
+  if (n <= 16) return 4
+  if (n <= 25) return 5
+  return 6
+}
+
+// ── 5-minute video-quality upsell modal (free users only) ──
+// Shown ONCE per room session, 5 minutes AFTER room entry. Non-blocking — does
+// NOT add minutes, reset the allowance, or interrupt the room. The user can
+// close it and continue studying. Paid users never see it.
+function QualityUpsellModal({ onClose, onUpgrade }: {
+  onClose: () => void
+  onUpgrade: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-40 bg-black/40 flex items-center justify-center p-4 pointer-events-auto" onClick={onClose}>
+      <div className="bg-card rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between">
+          <div className="size-12 rounded-xl bg-brand-emerald/10 flex items-center justify-center">
+            <Sparkles className="size-6 text-brand-emerald" />
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground" aria-label="Close">
+            <X className="size-5" />
+          </button>
+        </div>
+        <h3 className="text-lg font-bold">Enjoy better video quality with Premium</h3>
+        <p className="text-sm text-muted-foreground">Upgrade for a better study-room experience.</p>
+        <div className="rounded-lg bg-muted px-3 py-2 text-center">
+          <span className="text-2xl font-bold text-brand-emerald">₹14</span>
+          <span className="text-xs text-muted-foreground"> / day</span>
+        </div>
+        <div className="flex flex-col gap-2">
+          <button onClick={onUpgrade} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-brand-emerald text-white text-sm font-medium hover:opacity-90">
+            <Zap className="size-4" /> Get Daily Pass
+          </button>
+          <button onClick={onUpgrade} className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium hover:bg-accent">
+            View Other Plans
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Dev diagnostics overlay (dev only, no secrets) ──
+// Small fixed-position overlay showing participant count, subscribed tracks,
+// visible count, connection state, and the active video-quality tier. Helps
+// verify that virtualization + off-screen pausing are working. Never logs
+// tokens, secrets, or user data.
+function DevDiagnostics({
+  connectionState,
+  participantCount,
+  subscribedTrackCount,
+  visibleCount,
+  tier,
+  remoteMax,
+  localPreset,
+}: {
+  connectionState: ConnectionState
+  participantCount: number
+  subscribedTrackCount: number
+  visibleCount: number
+  tier: "free" | "paid"
+  remoteMax: "LOW" | "MEDIUM" | "HIGH"
+  localPreset: string
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="fixed bottom-20 left-3 z-30 text-[10px] font-mono">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-black/60 text-white backdrop-blur hover:bg-black/80"
+        title="Toggle dev diagnostics"
+      >
+        <Activity className="size-3" /> {open ? "Hide" : "Stats"}
+      </button>
+      {open && (
+        <div className="mt-1 px-2 py-1.5 rounded-md bg-black/70 text-white backdrop-blur space-y-0.5">
+          <div>conn: <span className={cn(connectionState === ConnectionState.Connected ? "text-emerald-400" : "text-amber-400")}>{connectionState}</span></div>
+          <div>participants: <span className="text-emerald-400">{participantCount}</span></div>
+          <div>subscribed video: <span className="text-emerald-400">{subscribedTrackCount}</span></div>
+          <div>visible tiles: <span className="text-emerald-400">{visibleCount}</span></div>
+          <div>tier: <span className="text-emerald-400">{tier}</span> · remote≤{remoteMax} · local={localPreset}</div>
         </div>
       )}
     </div>

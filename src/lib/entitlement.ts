@@ -1,6 +1,7 @@
 import { db } from "@/lib/db"
 import { isPaidPlanActive } from "@/lib/pricing"
 import { FREE_ROOM_ALLOWANCE_SECONDS, FREE_ROOM_WINDOW_MS } from "@/lib/pricing"
+import { resolveVideoQualityPolicy, videoQualityPolicyToResponse, VideoQualityPolicyResponse } from "@/lib/video-quality"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FREE LIVE-ROOM ALLOWANCE — server-authoritative entitlement engine.
@@ -34,6 +35,10 @@ export type Entitlement = {
   activeRoomId: string | null
   activeSessionStartedAt: Date | null
   warningShown: boolean
+  // Server-authoritative video-quality policy for the room (subscriber-side caps).
+  // The client applies these via LiveKit RemoteTrackPublication.setVideoQuality.
+  // The server NEVER accepts these values back as authoritative input.
+  videoQuality: VideoQualityPolicyResponse
 }
 
 // ── Get-or-create the allowance row for a user, applying a 24h reset if due. ──
@@ -93,6 +98,7 @@ export async function getEntitlement(userId: string): Promise<Entitlement> {
   const consumed = row.consumedSeconds + live
   const remaining = isPaid ? 0 : Math.max(0, FREE_ROOM_ALLOWANCE_SECONDS - consumed)
   const windowResetsAt = new Date(row.windowStartedAt.getTime() + FREE_ROOM_WINDOW_MS)
+  const videoQuality = videoQualityPolicyToResponse(resolveVideoQualityPolicy(sub))
   return {
     isPaid,
     canJoinLiveRoom: isPaid || remaining > 0,
@@ -106,6 +112,7 @@ export async function getEntitlement(userId: string): Promise<Entitlement> {
     activeRoomId: row.activeRoomId,
     activeSessionStartedAt: row.activeSessionStartedAt,
     warningShown: !!row.warningShownAt,
+    videoQuality,
   }
 }
 
@@ -217,5 +224,6 @@ export function entitlementToResponse(ent: Entitlement) {
     activeSessionId: ent.activeSessionId,
     activeRoomId: ent.activeRoomId,
     warningShown: ent.warningShown,
+    videoQuality: ent.videoQuality,
   }
 }

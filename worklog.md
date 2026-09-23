@@ -196,3 +196,37 @@ Stage Summary:
 - Paid override: isPaidPlanActive bypasses the allowance entirely (no countdown, no warning, no forced close).
 - Multi-tab: one active session per user; new join auto-closes the prior. No allowance multiplication.
 - Android-ready: the entitlement + token + heartbeat + warning-shown endpoints are the contract; the server never accepts client-supplied time values as authoritative.
+
+---
+Task ID: VIDEO-OPT-006
+Agent: general-purpose (LiveKit video optimization)
+Task: Implement production-grade LiveKit video optimization: server-authoritative quality policy, adaptive stream + dynacast + simulcast, subscriber-side layer capping (free=240p, paid=360p), local 720p capture, virtualized participant grid for 1000+ rooms, off-screen video pausing, 5-min video-quality upsell for free users, dev diagnostics.
+
+Work Log:
+- Created src/lib/video-quality.ts — server-authoritative quality policy. FREE: remoteGridMaxQuality=LOW (~240p), remoteGridMaxHeightPx=240. PAID: remoteGridMaxQuality=MEDIUM (~360p), remoteGridMaxHeightPx=360. Both: localCapturePreset=h720. resolveVideoQualityPolicy() reads the DB subscription (never trusts client). videoQualityPolicyToResponse() returns the shape for the token/entitlement response.
+- Updated src/lib/entitlement.ts: Entitlement now includes `videoQuality: VideoQualityPolicyResponse`. getEntitlement() resolves the policy from the DB subscription and includes it in the response. entitlementToResponse() includes videoQuality.
+- Created src/lib/video-quality-client.ts — single client-side place that translates the server policy into LiveKit API calls. buildRoomOptions(policy) returns Room options with adaptiveStream=true, dynacast=true, videoCaptureDefaults=h720, publishDefaults.simulcast=true + [h720, h360, h180] simulcast layers. applyRemoteQualityCap(pub, policy) calls pub.setVideoQuality(LOW/MEDIUM) + setVideoDimensions on a remote camera track. pauseRemoteTrack(pub) sets quality to LOW when the tile is scrolled off-screen. resumeRemoteTrack(pub, policy) re-asserts the cap when the tile scrolls back. applyPolicyToAllRemoteTracks(room, policy) caps all existing remote cameras. countSubscribedRemoteVideoTracks(room) for diagnostics.
+- Updated src/components/app/views/room.tsx:
+  - Ent type now includes `videoQuality: ClientVideoPolicy`.
+  - connect() reads the policy from the token response, builds the Room via `new Room(buildRoomOptions(policy))`, applies the quality cap on every TrackSubscribed event, re-applies on Reconnected, and applies to all existing remote tracks after connect (race safety).
+  - Added VirtualizedParticipantGrid: for ≤60 participants, renders all tiles in a CSS grid (IntersectionObserver handles off-screen pausing). For >60, renders only the visible window + overscan (6 rows) inside a scroll container; off-screen rows are lightweight spacer divs with NO <video> elements. The participant count in the header still reflects the REAL LiveKit count.
+  - Added VisibleTile: wraps ParticipantTile with an IntersectionObserver. On visibility change, calls pauseRemoteTrack (off-screen) or resumeRemoteTrack (on-screen) on the remote camera publication. This COMPLEMENTS LiveKit Adaptive Stream (which handles display:none / detached) by also handling "in the DOM but scrolled out of the viewport".
+  - Added 5-minute video-quality upsell (QualityUpsellModal): shown ONCE per room session, 5 min AFTER room entry (roomEnteredAtRef), NOT based on remaining allowance. Distinct from the 5-min-remaining free-allowance warning (FreeWarningModal). Non-blocking; does NOT add minutes, reset the allowance, or interrupt the room. Paid users never see it. Shows "Enjoy better video quality with Premium", ₹14/day, "Get Daily Pass", "View Other Plans".
+  - Added DevDiagnostics overlay (dev only, bottom-left, toggleable): shows conn state, participant count, subscribed video tracks, visible tiles, tier + remote≤X + local=preset. No secrets logged.
+- Verified via curl: /api/entitlement returns videoQuality (free: LOW/240p/h720; paid: MEDIUM/360p/h720). Server computes the tier from the DB subscription.
+- Verified via agent-browser: admin joins room → LiveKit Cloud connection confirmed (Japan region) → camera on → video renders → "Free study time: 29:XX" countdown shows → dev diagnostics "Stats" button visible → overlay shows "conn: connected, participants: 1, subscribed video: 0, visible tiles: 1, tier: free · remote≤LOW · local=h720". VLM confirmed the layout.
+- `bun run lint` passes clean. `bun run build` succeeds with no errors/warnings (Next.js 16 + Turbopack + Vercel-compatible: no custom Node servers, no server-side WebRTC, all browser APIs are inside client components/effects with SSR guards).
+
+Stage Summary:
+- Local HD: 720p capture preset (h720 = 1280×720 @ 30fps). NOT 1080p — 720p is plenty for a local preview and keeps uplink low.
+- Free remote grid cap: ~240p (VideoQuality.LOW simulcast layer) via setVideoQuality + setVideoDimensions. Subscriber-side; publisher quality is NOT reduced.
+- Paid remote grid cap: ~360p (VideoQuality.MEDIUM) via the same mechanism.
+- 5-min video-quality upsell: QualityUpsellModal, 5 min after room entry, once per session, free users only, non-blocking, distinct from the 5-min-remaining allowance warning.
+- Adaptive Stream: enabled (LiveKit observes each <video> element's rendered size + visibility to pick the appropriate simulcast layer, pauses delivery when not visible). We do NOT build a competing system.
+- Dynacast + simulcast: enabled. Publisher emits [h720, h360, h180] layers; each subscriber receives only the layer appropriate for their tier + tile size + visibility.
+- Off-screen pausing: IntersectionObserver on each tile → pauseRemoteTrack (setVideoQuality LOW) when scrolled out of view; resumeRemoteTrack re-asserts the cap when scrolled back. Complements Adaptive Stream.
+- Virtualization: ≤60 participants = full CSS grid + IntersectionObserver. >60 = windowed grid (only visible rows + 6-row overscan render <video> elements; off-screen rows are spacer divs). No 1000-video DOM explosion.
+- 1000+ participants: the design never creates one <video> per participant. Participant count in the header is the REAL LiveKit count (from room.remoteParticipants). Only visible tiles attach video. Remote tracks for off-screen tiles are paused.
+- Worldwide LiveKit Cloud: the serverUrl comes from the server token response (wss://web-brwna5ik.livekit.cloud); all media flows Browser ↔ LiveKit Cloud, never through Vercel. No localhost/127.0.0.1 media URLs.
+- Vercel compatibility: build succeeds. All browser APIs (IntersectionObserver, MediaDevices, WebRTC, livekit-client) are inside a "use client" component with SSR guards (IntersectionObserver typeof check).
+- LiveKit Cloud limits: the app does not impose an artificial participant limit (maxParticipants defaults to 500 in the Room model; the frontend virtualizes so the DOM limit is not the constraint). LiveKit Cloud's actual per-room participant limit depends on the project's plan — document this separately.

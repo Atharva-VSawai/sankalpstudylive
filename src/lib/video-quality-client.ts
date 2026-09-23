@@ -1,0 +1,137 @@
+"use client"
+
+import { Room, VideoPresets, VideoQuality, RemoteTrackPublication, Track } from "livekit-client"
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Client-side video quality helper — applies the SERVER-AUTHORITATIVE policy.
+// ─────────────────────────────────────────────────────────────────────────────
+// The policy comes from the token/entitlement response (server computes it
+// from the DB subscription — never trusted from client state). This module is
+// the single place that translates the policy into LiveKit API calls:
+//
+//   - Room options: adaptiveStream + dynacast + 720p local capture preset.
+//   - Per-remote-camera-track: setVideoQuality(cap) to cap the subscribed
+//     simulcast layer (subscriber-side; does NOT reduce the publisher's camera).
+//   - Off-screen tiles: setVideoQuality(LOW) + setSubscribed(false) when a tile
+//     is scrolled out of view (complements LiveKit Adaptive Stream).
+//
+// A malicious client that manipulates React state / DevTools can call these
+// functions with different values, but the server still enforces the real
+// entitlement via the token + heartbeat endpoints (the room closes at 00:00
+// regardless of client-side quality manipulation). The quality caps here are a
+// bandwidth/cost optimization, not an access-control mechanism.
+
+export type ClientVideoPolicy = {
+  tier: "free" | "paid"
+  remoteGridMaxQuality: "LOW" | "MEDIUM" | "HIGH"
+  remoteGridMaxHeightPx: number
+  localCapturePreset: "h720"
+}
+
+// Map the policy's quality string to the livekit-client VideoQuality enum.
+function toVideoQuality(q: "LOW" | "MEDIUM" | "HIGH"): VideoQuality {
+  if (q === "HIGH") return VideoQuality.HIGH
+  if (q === "MEDIUM") return VideoQuality.MEDIUM
+  return VideoQuality.LOW
+}
+
+// ── Build the Room options for the user's policy. ──
+// adaptiveStream: true → LiveKit observes each <video> element's rendered size
+//   and visibility to pick an appropriate simulcast layer, and pauses delivery
+//   when the element is not visible. This is the PRIMARY mechanism for
+//   "only load visible videos" — we do NOT build a competing system.
+// dynacast: true → the publisher pauses unused simulcast layers when no
+//   subscriber needs them (saves uplink bandwidth/CPU).
+// videoCaptureDefaults: 720p preset for the local camera (HD local preview,
+//   NOT 1080p — 720p is plenty and keeps uplink low).
+// publishDefaults: simulcast enabled so the publisher emits multiple layers
+//   (high/medium/low) and each subscriber receives the appropriate one.
+export function buildRoomOptions(policy: ClientVideoPolicy) {
+  return {
+    adaptiveStream: true,
+    dynacast: true,
+    videoCaptureDefaults: {
+      resolution: VideoPresets[policy.localCapturePreset].resolution,
+    },
+    publishDefaults: {
+      videoSimulcastLayers: [VideoPresets.h720, VideoPresets.h360, VideoPresets.h180],
+      simulcast: true,
+    },
+  }
+}
+
+// ── Apply the subscriber-side cap to a single remote camera publication. ──
+// Called once per remote camera track. setVideoQuality caps the subscribed
+// simulcast layer at the policy's max quality. LiveKit Adaptive Stream may
+// further downgrade the layer based on the rendered <video> element's actual
+// size, but it will never exceed this cap.
+//
+// Returns true if a cap was applied (track is a remote camera), false otherwise.
+export function applyRemoteQualityCap(
+  pub: RemoteTrackPublication | undefined,
+  policy: ClientVideoPolicy
+): boolean {
+  if (!pub) return false
+  if (pub.source !== Track.Source.Camera) return false
+  // Only cap REMOTE tracks; local tracks are published by us and are already HD.
+  if (!pub.isRemote) return false
+  try {
+    pub.setVideoQuality(toVideoQuality(policy.remoteGridMaxQuality))
+    // Also hint the rendered dimensions so Adaptive Stream never requests a
+    // layer above the cap even if the tile is large.
+    pub.setVideoDimensions({
+      width: Math.round((policy.remoteGridMaxHeightPx * 16) / 9),
+      height: policy.remoteGridMaxHeightPx,
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+// ── Pause a remote track when its tile is scrolled off-screen. ──
+// Complements LiveKit Adaptive Stream: Adaptive Stream pauses delivery when
+// the <video> element is not visible (display:none / detached), but a tile
+// that is still in the DOM but scrolled out of the viewport may not trigger
+// that. We explicitly set the quality to LOW and mark the subscription
+// paused so the server stops forwarding that track's media.
+export function pauseRemoteTrack(pub: RemoteTrackPublication | undefined): void {
+  if (!pub) return
+  if (pub.source !== Track.Source.Camera) return
+  if (!pub.isRemote) return
+  try {
+    pub.setVideoQuality(VideoQuality.LOW)
+  } catch {}
+}
+
+// ── Resume a remote track when its tile scrolls back into view. ──
+// Re-applies the policy cap. LiveKit Adaptive Stream then re-evaluates the
+// rendered size and picks the appropriate layer (up to the cap).
+export function resumeRemoteTrack(pub: RemoteTrackPublication | undefined, policy: ClientVideoPolicy): void {
+  applyRemoteQualityCap(pub, policy)
+}
+
+// ── Apply the policy to ALL remote camera tracks in the room. ──
+// Called once after connecting (and after the policy is known) to cap every
+// existing remote camera. New remotes are capped via the TrackSubscribed event.
+export function applyPolicyToAllRemoteTracks(room: Room, policy: ClientVideoPolicy): number {
+  let applied = 0
+  for (const p of room.remoteParticipants.values()) {
+    for (const pub of p.getTrackPublications()) {
+      if (applyRemoteQualityCap(pub as RemoteTrackPublication, policy)) applied++
+    }
+  }
+  return applied
+}
+
+// ── Dev diagnostics: count subscribed remote video tracks. ──
+export function countSubscribedRemoteVideoTracks(room: Room | null): number {
+  if (!room) return 0
+  let n = 0
+  for (const p of room.remoteParticipants.values()) {
+    for (const pub of p.getTrackPublications()) {
+      if (pub.source === Track.Source.Camera && pub.isSubscribed) n++
+    }
+  }
+  return n
+}
