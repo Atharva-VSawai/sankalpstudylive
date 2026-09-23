@@ -163,6 +163,17 @@ export async function closeSession(sessionId: string, timezone: string) {
       await trackEvent(session.userId, "badge_earned", { slug: b.slug })
     }
   }
+
+  // ── Increment free-user room-usage tracking ──
+  // If the session was in a room, add the minutes to roomMinutesUsed on the profile.
+  // This is the server-authoritative count that enforces the 60-min free allowance.
+  if (session.roomId && durationMin > 0) {
+    await db.profile.update({
+      where: { userId: session.userId },
+      data: { roomMinutesUsed: { increment: durationMin } },
+    })
+  }
+
   return { durationMin, xpEarned: xp, level, oldLevel, leveledUp, streak: streak.current, goal, awardedBadges }
 }
 

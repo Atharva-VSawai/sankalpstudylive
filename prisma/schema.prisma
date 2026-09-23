@@ -81,6 +81,11 @@ model Profile {
   notifPrefs      String   @default("{}")
   // Auto-logout after N minutes of inactivity (0 = never). Default 60.
   sessionTimeoutMin Int   @default(60)
+  // Pomodoro settings (JSON): { focusMin, breakMin, longBreakMin, rounds }
+  pomodoroConfig  String   @default("{\"focusMin\":25,\"breakMin\":5,\"longBreakMin\":15,\"rounds\":4}")
+  // Free-user lifetime room usage tracking (minutes consumed across all rooms).
+  // Free users get 60 lifetime minutes. Paid plans bypass this.
+  roomMinutesUsed Int      @default(0)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -157,7 +162,8 @@ model Room {
   isLive        Boolean  @default(false)
   isListed     Boolean  @default(true) // visible in discovery
   isPrivate     Boolean  @default(false)
-  maxParticipants Int    @default(20)
+  isDefaultRoom  Boolean  @default(false) // system permanent room (e.g. GATE Focus Room)
+  maxParticipants Int    @default(500) // high default; real limit is the video infra
   participantCount Int  @default(0)
   focusMode     Boolean  @default(true)
   pomodoroConfig String @default("{\"focusMin\":25,\"breakMin\":5,\"longBreakMin\":15,\"rounds\":4}")

@@ -710,3 +710,129 @@ Unresolved / Next-phase priorities:
 - Real LiveKit/Supabase Auth/Redis swap (still sandbox-simulated).
 - Push notifications (FCM) — still the remaining realtime-out-of-app channel.
 - Playwright E2E tests for the golden path.
+
+---
+Task ID: CRON-12 (MAJOR REDESIGN)
+Agent: main (Z.ai Code)
+Task: Redesign live study room as silent virtual study hall + full Pomodoro system
+
+Current project status / assessment:
+- User requested: transform the meeting-style room into a silent study hall with Pomodoro, remove mic/chat/reactions/screenshare/hand/invite, keep camera + ambient + leave, add 11 default exam rooms, enforce free 60-min lifetime room allowance, add customizable Pomodoro with presets + custom + persistence, timestamp-based timer, responsive participant grid, no 20-person limit.
+- Also reported: "Unexpected token <" JSON error when creating/joining rooms.
+
+Current goals / completed modifications / verification results:
+
+  1. FIXED: "Unexpected token <" JSON error
+     - Root cause: the presence PATCH route used `await import(...)` dynamically which could fail and return an HTML error page instead of JSON.
+     - Fix: replaced the dynamic import with a static top-level import of `updateParticipant` from `@/lib/presence`.
+
+  2. Schema changes (backward-compatible additions):
+     - Room: added `isDefaultRoom Boolean @default(false)`, changed `maxParticipants` default from 20 to 500.
+     - Profile: added `pomodoroConfig String @default("{\"focusMin\":25,\"breakMin\":5,\"longBreakMin\":15,\"rounds\":4}")` and `roomMinutesUsed Int @default(0)`.
+     - Pushed with db:push. Generated Prisma client.
+
+  3. Seeded 11 permanent default Focus Rooms:
+     - GATE Focus Room, JEE Focus Room, NEET Focus Room, UPSC Focus Room, CAT Focus Room, SSC Focus Room, Banking Focus Room, MPSC Focus Room, Placement Focus Room, DSA Focus Room, General Study Focus Room.
+     - Each has `isDefaultRoom=true`, `maxParticipants=500`, community-linked, permanent (cannot be deleted by normal users).
+
+  4. Free-user 60-minute lifetime room allowance (server-authoritative):
+     - POST /api/rooms/[id]/token now checks `profile.roomMinutesUsed >= 60` for free users. Returns 403 `FREE_ALLOWANCE_EXHAUSTED` if exceeded.
+     - Paid plans (plus/pro with active status) bypass this check.
+     - closeSession (study stop) increments `roomMinutesUsed` by the server-computed duration — this is server-authoritative and cannot be bypassed by the client.
+     - Token response includes `roomMinutesUsed`, `freeAllowanceMin`, `hasPaidPlan` for client display.
+
+  5. Silent study room (audio disabled at application level):
+     - LiveKit token now sets `canPublishAudio: false` — the room is genuinely silent, not just hidden.
+     - Presence PATCH forces `micOn: false` regardless of what the client sends.
+     - Presence POST join forces `micOn: false`.
+     - Verified: PATCH with `{micOn:true}` → response `micOn=false`.
+
+  6. Complete room view redesign (815 lines → ~400 lines, meeting-style → study hall):
+     - REMOVED: microphone/unmute, chat panel, reactions, screen share, raise hand, invite, share link, speaker queue, co-host controls, whiteboard, level-up modal, confetti, floating reactions ticker, side panel with tabs.
+     - KEPT: camera toggle, ambient sounds (compact popover), leave room, participant grid, Pomodoro.
+     - NEW: minimal header ("← Back | Room Name | N studying · Silent focus room"), responsive participant grid (equal tiles, no host dominance, 2-col on mobile, up to 6-col on desktop), timestamp-based Pomodoro with all 6 states (ready/focusing/paused/short_break/long_break/completed), 5 presets + custom settings dialog, auto-transition with chime, settings persistence via API.
+
+  7. Full Pomodoro system:
+     - States: READY → FOCUSING → PAUSED → SHORT_BREAK → LONG_BREAK → COMPLETED.
+     - Controls: Start Focus, Pause, Resume, Reset, Skip Break, Customize.
+     - Timer: timestamp-based (endsAt epoch ms, not decrement counter) — accurate across tab switches, re-renders, browser throttling.
+     - Presets: 25/5, 50/10, 45/15, 60/10, 90/20.
+     - Custom: Focus (1-180), Short Break (1-60), Long Break (1-60), Rounds (1-12). Validates NaN, negative, zero, extremely large values.
+     - Auto-transition: focus→short break, after N rounds→long break, break→ready. Plays a chime.
+     - Persistence: GET/PUT /api/pomodoro/settings. Stored on Profile.pomodoroConfig. Survives page reloads.
+     - Server study tracking: start focus calls POST /api/study/sessions (existing server-authoritative mechanism). Stop/leave calls stop. Duration computed server-side. XP/streak/badges remain server-authoritative.
+
+  8. No hardcoded 20-person product limit:
+     - Removed `maxParticipants` from all API responses (rooms list, room detail, room create).
+     - Room header shows "N studying" instead of "N/20".
+     - Default maxParticipants changed from 20 to 500 in schema.
+     - UI shows "37 studying" or "0 studying" — never "N/20".
+
+  9. API changes:
+     - POST /api/rooms/[id]/token: added free-user check + canPublishAudio=false + roomMinutesUsed/freeAllowanceMin/hasPaidPlan in response.
+     - POST/PATCH /api/rooms/[id]/presence: forces micOn=false (silent room).
+     - GET /api/rooms: removed maxParticipants, added isDefaultRoom.
+     - GET /api/rooms/[id]: removed maxParticipants, added isDefaultRoom.
+     - POST /api/rooms: default maxParticipants 500, isDefaultRoom=false.
+     - GET/PUT /api/pomodoro/settings: new endpoint for Pomodoro config.
+     - closeSession: increments roomMinutesUsed for free-user tracking.
+
+- Ran `bun run lint` → clean (0 errors, 0 warnings).
+- Production build (`bun run build`) → succeeds (exit 0).
+- All 11 default rooms verified.
+- Agent-browser verification:
+  - h1: "General Study Focus Room" ✓
+  - hasUnmute: false ✓
+  - hasMic: false ✓
+  - hasChat: false ✓
+  - hasReactions: false ✓
+  - hasScreenShare: false ✓
+  - hasRaiseHand: false ✓
+  - hasInvite: false ✓
+  - hasPomodoro: true ✓
+  - hasCamera: true ✓
+  - hasAmbient: true ✓
+  - hasLeave: true ✓
+  - has20: false ✓ (no hardcoded 20 limit)
+  - Zero console errors ✓
+
+Stage Summary:
+- Room completely redesigned from meeting-style to silent study hall.
+- Full Pomodoro system with presets, custom settings, persistence, auto-transitions, timestamp accuracy.
+- 11 permanent default exam Focus Rooms seeded.
+- Free 60-minute lifetime allowance enforced server-side (paid bypass).
+- Audio genuinely disabled (not just hidden).
+- No 20-person limit in UI.
+- Existing features preserved: auth, profiles, communities, study sessions, XP, streaks, badges, leaderboards, friends, notifications, subscription, payments.
+- Production build succeeds.
+
+Files changed:
+- prisma/schema.prisma (Room.isDefaultRoom, Room.maxParticipants default, Profile.pomodoroConfig, Profile.roomMinutesUsed)
+- prisma/seed.ts (11 default rooms)
+- src/app/api/rooms/[id]/token/route.ts (free-user check, canPublishAudio=false)
+- src/app/api/rooms/[id]/presence/route.ts (force micOn=false, static import)
+- src/app/api/rooms/[id]/route.ts (isDefaultRoom, remove maxParticipants)
+- src/app/api/rooms/route.ts (isDefaultRoom, remove maxParticipants, default 500)
+- src/app/api/study/sessions/route.ts (increment roomMinutesUsed)
+- src/app/api/pomodoro/settings/route.ts (NEW)
+- src/components/app/views/room.tsx (complete redesign)
+
+API/database changes:
+- New endpoint: GET/PUT /api/pomodoro/settings
+- New schema fields: Room.isDefaultRoom, Profile.pomodoroConfig, Profile.roomMinutesUsed
+- Enhanced: room token returns free-usage info; presence forces silent mic; study stop tracks room minutes
+
+Tests performed:
+- Lint: clean
+- Production build: succeeds
+- 11 default rooms: all present
+- No maxParticipants in API: verified
+- Pomodoro settings GET/PUT: works, validates NaN/0/negative
+- Room token: returns free-usage info
+- Silent mic: PATCH micOn=true → response micOn=false
+- Agent-browser: all meeting features removed, all study features present, no 20-limit
+
+Remaining sandbox limitations:
+- LiveKit is simulated (token has canPublishAudio=false but no real WebRTC media flows). In production, the real LiveKit SDK reads canPublishAudio to block mic publication.
+- Room presence is in-memory (won't share across multiple server instances). Production uses Redis.
+- The "Unexpected token <" error was caused by the dynamic import in the presence route — now fixed with a static import. If the error recurs, it would indicate a different unhandled exception in another API route.

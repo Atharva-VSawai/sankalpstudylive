@@ -35,9 +35,9 @@ export async function GET(req: NextRequest) {
       description: r.description,
       isLive: r.isLive,
       isPrivate: r.isPrivate,
+      isDefaultRoom: r.isDefaultRoom,
       focusMode: r.focusMode,
       participantCount: r.participantCount,
-      maxParticipants: r.maxParticipants,
       tags: safeParse(r.tags),
       startedAt: r.startedAt,
       community: r.community ? { slug: r.community.slug, name: r.community.name, color: r.community.color } : null,
@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
   const description = body?.description ? String(body.description) : null
   const communitySlug = body?.communitySlug ? String(body.communitySlug) : null
   const isPrivate = Boolean(body?.isPrivate)
-  const maxParticipants = Math.min(50, Math.max(2, Number(body?.maxParticipants || 20)))
+  const maxParticipants = Math.min(500, Math.max(2, Number(body?.maxParticipants || 500)))
   const focusMode = body?.focusMode !== false
   const tags = Array.isArray(body?.tags) ? body.tags.map(String).slice(0, 6) : []
   const pomodoroConfig = {
@@ -94,6 +94,7 @@ export async function POST(req: NextRequest) {
       isLive: true,
       isListed: !isPrivate,
       isPrivate,
+      isDefaultRoom: false,
       maxParticipants,
       focusMode,
       pomodoroConfig: JSON.stringify(pomodoroConfig),
@@ -116,9 +117,9 @@ export async function POST(req: NextRequest) {
       description: room.description,
       isLive: room.isLive,
       isPrivate: room.isPrivate,
+      isDefaultRoom: room.isDefaultRoom,
       focusMode: room.focusMode,
       participantCount: 1,
-      maxParticipants: room.maxParticipants,
       pomodoroConfig,
       tags,
       livekitRoom: room.livekitRoom,

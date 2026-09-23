@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server"
 import { db } from "@/lib/db"
 import { ok, notFound, unauthorized, getAuth } from "@/lib/api"
-import { joinRoom, leaveRoom, listParticipants, heartbeat, reapStale } from "@/lib/presence"
+import { joinRoom, leaveRoom, listParticipants, heartbeat, reapStale, updateParticipant } from "@/lib/presence"
 
 // GET /api/rooms/[id]/presence
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -44,12 +44,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return ok({ ok: true })
   }
 
+  // ── SILENT STUDY ROOM: micOn is always false ──
+  // The client may send micOn but we force it to false — rooms are silent.
   const p = joinRoom(id, {
     userId: ctx.userId,
     username: profile.username,
     displayName: profile.displayName,
     avatarUrl: profile.avatarUrl ?? undefined,
-    micOn: body?.micOn ?? false,
+    micOn: false, // SILENT — no audio publication
     camOn: body?.camOn ?? false,
     isSpeaking: false,
     role: role as any,
@@ -57,17 +59,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   })
 
   const count = listParticipants(id).length
-  await db.room.update({ where: { id }, data: { participantCount: Math.min(count, room.maxParticipants) } })
+  await db.room.update({ where: { id }, data: { participantCount: count } })
   return ok({ participant: p, count })
 }
 
-// PATCH /api/rooms/[id]/presence — update mic/cam/speaking
+// PATCH /api/rooms/[id]/presence — update camOn only (mic is always off)
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const ctx = await getAuth(req)
   if (!ctx) return unauthorized()
   const { id } = await params
   const body = await req.json().catch(() => ({}))
-  const p = await import("@/lib/presence").then((m) => m.updateParticipant(id, ctx.userId, body))
+  // In the silent study room, only camOn can be toggled. micOn is always false.
+  const patch: any = {}
+  if (typeof body?.camOn === "boolean") patch.camOn = body.camOn
+  // micOn is forced to false — rooms are silent
+  patch.micOn = false
+  const p = updateParticipant(id, ctx.userId, patch)
   if (!p) return notFound("Not in room")
   return ok({ participant: p })
 }

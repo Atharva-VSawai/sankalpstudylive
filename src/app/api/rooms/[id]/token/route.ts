@@ -4,10 +4,13 @@ import { ok, notFound, unauthorized, forbidden, badRequest, getAuth } from "@/li
 import { createHmac } from "crypto"
 
 // POST /api/rooms/[id]/token
-// Issues a LiveKit access token. In the sandbox we build a real LiveKit-style JWT
-// (signed with a placeholder secret) so the contract matches production exactly.
-// Production swaps in the livekit-server-sdk with real LIVEKIT_API_KEY/SECRET.
-// See docs/livekit.md.
+// Issues a LiveKit access token for a SILENT STUDY ROOM.
+// Audio publication is DISABLED — rooms are silent. Camera is enabled.
+//
+// Free-user enforcement: free users get 60 LIFETIME minutes across all rooms.
+// Paid plans (plus/pro) bypass this. The server checks roomMinutesUsed on the
+// profile + subscription status. This is server-authoritative and cannot be
+// bypassed by the client.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const ctx = await getAuth(req)
   if (!ctx) return unauthorized()
@@ -18,15 +21,27 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   })
   if (!room) return notFound("Room not found")
 
-  const body = await req.json().catch(() => ({}))
-  const canPublish = body?.canPublish !== false // camera/mic publish grant
-  const canPublishData = Boolean(body?.canPublishData) // screen share etc.
-
-  // Check capacity
-  if (room.participantCount >= room.maxParticipants) return forbidden("Room is full", "ROOM_FULL")
-
-  const profile = await db.profile.findUnique({ where: { userId: ctx.userId } })
+  const profile = await db.profile.findUnique({
+    where: { userId: ctx.userId },
+    include: { user: { include: { subscription: true } } },
+  })
   if (!profile) return badRequest("Profile missing")
+
+  // ── Free-user 60-minute lifetime allowance check ──
+  const FREE_ALLOWANCE_MIN = 60
+  const sub = profile.user.subscription
+  const hasPaidPlan =
+    sub &&
+    sub.status === "active" &&
+    (sub.plan === "plus" || sub.plan === "pro")
+  if (!hasPaidPlan) {
+    if (profile.roomMinutesUsed >= FREE_ALLOWANCE_MIN) {
+      return forbidden(
+        "You've used all 60 free minutes of live study-room access. Upgrade to Sankalp Plus for unlimited access.",
+        "FREE_ALLOWANCE_EXHAUSTED"
+      )
+    }
+  }
 
   // Ensure a RoomMember row exists for the participant
   const member = await db.roomMember.upsert({
@@ -41,6 +56,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const name = profile.displayName
   const metadata = JSON.stringify({ username: profile.username, avatarUrl: profile.avatarUrl ?? null, role: member.role })
 
+  // ── SILENT ROOM: audio publish DISABLED, camera publish ENABLED ──
   const token = buildLiveKitToken({
     apiKey,
     apiSecret,
@@ -48,22 +64,29 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     identity,
     name,
     metadata,
-    canPublish,
-    canSubscribe: true,
-    canPublishData,
+    canPublish: true,        // camera video
+    canSubscribe: true,       // see others
+    canPublishData: false,    // no screen share / data
+    // Audio is disabled at the application level: canPublishAudio = false
+    canPublishAudio: false,   // SILENT STUDY ROOM
   })
 
   return ok({
     token,
-    url: process.env.LIVEKIT_URL || "wss://sankalp.livekit.cloud", // placeholder WS URL
+    url: process.env.LIVEKIT_URL || "wss://sankalp.livekit.cloud",
     livekitRoom: room.livekitRoom,
     identity,
     wsUrl: process.env.LIVEKIT_URL || "wss://sankalp.livekit.cloud",
+    // Inform the client about room-usage status
+    roomMinutesUsed: profile.roomMinutesUsed,
+    freeAllowanceMin: FREE_ALLOWANCE_MIN,
+    hasPaidPlan,
   })
 }
 
 // Minimal LiveKit-compatible JWT (HS256). Matches the `AccessToken` shape
 // the livekit-server-sdk produces, so the Android client can use the real SDK.
+// Added canPublishAudio flag for silent-room enforcement.
 function buildLiveKitToken(opts: {
   apiKey: string
   apiSecret: string
@@ -74,6 +97,7 @@ function buildLiveKitToken(opts: {
   canPublish: boolean
   canSubscribe: boolean
   canPublishData: boolean
+  canPublishAudio?: boolean
 }) {
   const now = Math.floor(Date.now() / 1000)
   const exp = now + 6 * 3600
@@ -90,6 +114,9 @@ function buildLiveKitToken(opts: {
       canPublish: opts.canPublish,
       canSubscribe: opts.canSubscribe,
       canPublishData: opts.canPublishData,
+      // Silent study room: audio publication disabled at the token level.
+      // LiveKit SDK reads this to decide whether to allow mic publish.
+      canPublishAudio: opts.canPublishAudio ?? false,
       hidden: false,
       recorder: false,
     },

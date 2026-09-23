@@ -115,6 +115,44 @@ async function main() {
     })
   }
 
+  // ── Seed permanent default Focus Rooms for each exam community ──
+  console.log("Seeding default focus rooms…")
+  // Find the admin user to be the owner of system rooms
+  const adminUser = await db.user.findUnique({ where: { email: "admin@sankalp.in" } })
+  const adminUserId = adminUser?.id ?? (await db.user.findFirst())?.id
+  if (!adminUserId) {
+    console.warn("No admin user found — skipping default room seed")
+  } else {
+    for (const c of COMMUNITIES) {
+      const community = await db.community.findUnique({ where: { slug: c.slug } })
+      if (!community) continue
+      const roomName = `${c.name} Focus Room`
+      const existing = await db.room.findFirst({
+        where: { name: roomName, isDefaultRoom: true, communityId: community.id },
+      })
+      if (existing) continue // already seeded
+      await db.room.create({
+        data: {
+          name: roomName,
+          description: `Study with other ${c.name} aspirants.`,
+          ownerId: adminUserId,
+          communityId: community.id,
+          livekitRoom: `sankalp-default-${c.slug}`,
+          isLive: true,
+          isListed: true,
+          isPrivate: false,
+          isDefaultRoom: true,
+          maxParticipants: 500,
+          focusMode: true,
+          pomodoroConfig: JSON.stringify({ focusMin: 25, breakMin: 5, longBreakMin: 15, rounds: 4 }),
+          tags: JSON.stringify([c.slug, "focus", "default"]),
+          startedAt: new Date(),
+        },
+      })
+      console.log(`  ✓ ${roomName}`)
+    }
+  }
+
   console.log("Seed complete.")
 }
 
