@@ -605,3 +605,55 @@ Unresolved / Next-phase priorities (for the next webDevReview round):
 - Dashboard: "study buddies online" widget.
 - More landing polish: animated exam logos marquee, hero video background.
 - Settings: session timeout / auto-logout.
+
+---
+Task ID: CRON-10
+Agent: webDevReview cron (round 10)
+Task: QA the platform, add co-host demotion, buddies online widget, exam marquee, auto-logout
+
+Current project status / assessment:
+- Platform stable from CRON-9. All 60 API endpoints return 200, all 19 views render correctly, zero console errors.
+- No bugs found in QA. Proceeded to add 4 new features.
+
+Current goals / completed modifications / verification results:
+
+  1. Co-host demotion (NEW)
+     - Frontend: in the room queue tab, co-hosts now show a "Demote" button (muted style) next to the "Lower" button. Clicking calls PATCH /api/rooms/[id]/members/[userId] { role: "participant" }. The "Promote" button only shows for non-co-hosts; "Demote" only shows for co-hosts.
+     - API: uses the existing PATCH /api/rooms/[id]/members/[userId] endpoint (host/mod only).
+     - Verified: promote aarav → {role:"co_host"}, demote → {role:"participant"}.
+
+  2. "Study buddies online" dashboard widget (NEW)
+     - Component: new BuddiesOnlineWidget (src/components/app/buddies-online-widget.tsx) — polls /api/friends/online every 30s, shows up to 5 online friends with a green presence dot, avatar, "in {roomName}" status, and a "Join" button. Empty state: "No buddies studying right now." Header shows count with a pulsing Radio icon.
+     - Placed on the Dashboard (top of the right column, above WeeklyGoalRing).
+     - Verified: dashboard shows "Buddies online" card.
+
+  3. Animated exam logos marquee on landing (NEW) — styling
+     - Component: new ExamMarquee (src/components/app/exam-marquee.tsx) — CSS-only infinite marquee (duplicated list + translateX keyframe, 30s linear, pause on hover) showing all 11 exam names. Fade edges on both sides.
+     - Placed on the landing between the live-rooms strip and the exam spotlights.
+     - Verified: landing has `.animate-marquee` element with exam names (GATE, etc.).
+
+  4. Session timeout / auto-logout setting (NEW)
+     - Schema: added `sessionTimeoutMin Int @default(60)` to Profile. Pushed with db:push.
+     - API: PATCH /api/profile now accepts `sessionTimeoutMin` (0-1440, 0=never). GET /api/profile returns it.
+     - Hook: new useIdleAutoLogout hook (src/lib/use-idle-auto-logout.ts) — watches mouse/keyboard/scroll/touch activity, shows a warning toast 60s before timeout, logs out + redirects to /login?reason=timeout on inactivity.
+     - Frontend: settings Account card now has an "Auto-logout" select (Never / 15min / 30min / 1h / 2h / 4h) with a description line. Save mutation includes sessionTimeoutMin. AppShell calls useIdleAutoLogout(me.profile.sessionTimeoutMin).
+     - Verified: API set to 30 → 30, set to 0 → 0; settings shows "Auto-logout" + "Never" option.
+
+- Ran `bun run lint` → clean (0 errors, 0 warnings) after adding Clock to imports.
+- All features browser-verified with agent-browser (zero console errors).
+
+Stage Summary:
+- Platform remains fully stable; 4 new features added.
+- New schema field (sessionTimeoutMin on Profile) + enhanced API (PATCH /api/profile) are backward-compatible. The Android contract gains an optional session-timeout field — nothing breaks.
+- All features verified: co-host demote round-trip, buddies online widget, exam marquee, auto-logout setting + API.
+
+Unresolved / Next-phase priorities (for the next webDevReview round):
+- Update docs/mobile-contract.md to document: the sessionTimeoutMin field on Profile, the enhanced PATCH /api/profile.
+- Real LiveKit/Supabase Auth/Redis swap (still sandbox-simulated).
+- Push notifications (FCM) — still the remaining realtime-out-of-app channel.
+- Playwright E2E tests for the golden path.
+- Room: "spotlight" a participant (host pins a speaker's video).
+- Profile: public vs private field visibility toggle.
+- Dashboard: "this month" summary card.
+- More landing polish: hero video background, animated community stats.
+- Settings: 2FA / TOTP setup.

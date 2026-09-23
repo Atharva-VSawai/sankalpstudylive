@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { useAuth } from "@/lib/auth-context"
 import { useRouter } from "@/lib/router"
 import { EXAM_META } from "@/components/app/brand"
-import { Save, LogOut, Palette, Globe, Target, Crown, Shield, Bell, AlertTriangle, Download, FileJson } from "lucide-react"
+import { Save, LogOut, Palette, Globe, Target, Crown, Shield, Bell, AlertTriangle, Download, FileJson, Clock } from "lucide-react"
 import { toast } from "sonner"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -41,12 +41,14 @@ export function SettingsView() {
   const [targetYear, setTargetYear] = useState<number | "">(p?.targetYear ?? "")
   const [studyHoursGoal, setStudyHoursGoal] = useState(Math.round((p?.studyHoursGoal ?? 360) / 60))
   const [timezone, setTimezone] = useState(me?.timezone ?? "Asia/Kolkata")
+  const [sessionTimeout, setSessionTimeout] = useState<number>(p?.sessionTimeoutMin ?? 60)
 
   const save = useMutation({
     mutationFn: () => api.patch("/profile", {
       displayName, username, bio: bio || null, avatarUrl: avatarUrl || null,
       examGoal, targetYear: targetYear === "" ? null : Number(targetYear),
       studyHoursGoal: Math.round(studyHoursGoal * 60), timezone,
+      sessionTimeoutMin: sessionTimeout,
     }),
     onSuccess: () => { refresh(); qc.invalidateQueries({ queryKey: ["profile"] }); toast.success("Settings saved") },
     onError: (e: ApiError) => toast.error(e.message),
@@ -116,6 +118,31 @@ export function SettingsView() {
               <div className="text-sm font-medium flex items-center gap-1.5"><Shield className="size-4" /> Role</div>
               <div className="text-xs text-muted-foreground capitalize">{me?.role}</div>
             </div>
+          </div>
+          <div className="rounded-lg border p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm font-medium flex items-center gap-1.5"><Clock className="size-4" /> Auto-logout</div>
+                <div className="text-xs text-muted-foreground">Log out after inactivity</div>
+              </div>
+              <select
+                value={sessionTimeout}
+                onChange={(e) => setSessionTimeout(Number(e.target.value))}
+                className="h-8 rounded-md border bg-background px-2 text-sm"
+              >
+                <option value={0}>Never</option>
+                <option value={15}>15 min</option>
+                <option value={30}>30 min</option>
+                <option value={60}>1 hour</option>
+                <option value={120}>2 hours</option>
+                <option value={240}>4 hours</option>
+              </select>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              {sessionTimeout === 0
+                ? "You'll stay signed in until you log out manually."
+                : `You'll be logged out after ${sessionTimeout} min of inactivity (with a 60s warning).`}
+            </p>
           </div>
         </CardContent>
       </Card>

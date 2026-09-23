@@ -79,6 +79,8 @@ model Profile {
   // Types: friend_request, friend_accept, badge_earned, goal_completed,
   //        streak_milestone, room_invite, report_update, system
   notifPrefs      String   @default("{}")
+  // Auto-logout after N minutes of inactivity (0 = never). Default 60.
+  sessionTimeoutMin Int   @default(60)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

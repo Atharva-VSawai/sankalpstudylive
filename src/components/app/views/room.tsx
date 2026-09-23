@@ -233,6 +233,15 @@ export function RoomView({ id }: { id: string }) {
     }
   }
 
+  const demoteCoHost = async (targetUserId: string) => {
+    try {
+      await api.patch(`/rooms/${id}/members/${targetUserId}`, { role: "participant" })
+      toast.success("Demoted to participant")
+    } catch (e: any) {
+      toast.error(e.message || "Failed to demote")
+    }
+  }
+
   const sendMessage = async () => {
     const text = chatText.trim()
     if (!text) return
@@ -524,6 +533,15 @@ export function RoomView({ id }: { id: string }) {
                               title="Promote to co-host"
                             >
                               Promote
+                            </button>
+                          )}
+                          {p.role === "co_host" && (
+                            <button
+                              onClick={() => demoteCoHost(p.userId)}
+                              className="text-[10px] px-2 py-1 rounded-md bg-muted text-muted-foreground hover:bg-accent"
+                              title="Demote to participant"
+                            >
+                              Demote
                             </button>
                           )}
                           <button

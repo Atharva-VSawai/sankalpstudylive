@@ -3,6 +3,7 @@
 import { useEffect, useMemo } from "react"
 import { useRouter, Link } from "@/lib/router"
 import { useAuth } from "@/lib/auth-context"
+import { useIdleAutoLogout } from "@/lib/use-idle-auto-logout"
 import { Logo } from "@/components/app/brand"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/app/theme-toggle"
@@ -37,6 +38,7 @@ const AUTHED_PREFIXES = ["/dashboard", "/study", "/journal", "/communities", "/r
 export function AppShell() {
   const { route, navigate } = useRouter()
   const { me, loading } = useAuth()
+  useIdleAutoLogout(me?.profile?.sessionTimeoutMin ?? 0)
 
   const path = route.path === "/" ? "/" : `/${route.segments.join("/")}`
 

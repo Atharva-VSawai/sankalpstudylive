@@ -11,6 +11,7 @@ import { ArrowRight, Users, Video, Flame, Trophy, BookOpen, Clock, Sparkles, Che
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { useCountUp } from "@/components/app/use-count-up"
 import { ExamSpotlights } from "@/components/app/exam-spotlights"
+import { ExamMarquee } from "@/components/app/exam-marquee"
 
 export function LandingView() {
   const { navigate } = useRouter()
@@ -139,6 +140,9 @@ export function LandingView() {
           )}
         </div>
       </section>
+
+      {/* Exam marquee */}
+      <ExamMarquee />
 
       {/* Exam spotlights — replaces the simpler communities grid */}
       <ExamSpotlights />

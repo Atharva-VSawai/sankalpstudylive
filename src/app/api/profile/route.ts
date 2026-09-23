@@ -49,6 +49,10 @@ export async function PATCH(req: NextRequest) {
   if (body?.examGoal) data.examGoal = String(body.examGoal)
   if (body?.targetYear) data.targetYear = Number(body.targetYear)
   if (body?.studyHoursGoal) data.studyHoursGoal = Math.min(1440, Math.max(15, Number(body.studyHoursGoal)))
+  if (body?.sessionTimeoutMin !== undefined) {
+    const t = Number(body.sessionTimeoutMin)
+    if (Number.isFinite(t) && t >= 0 && t <= 1440) data.sessionTimeoutMin = t
+  }
   if (body?.timezone) data.timezone = String(body.timezone)
   if (typeof body?.timezone === "string") {
     await db.user.update({ where: { id: ctx.userId }, data: { timezone: body.timezone } })
