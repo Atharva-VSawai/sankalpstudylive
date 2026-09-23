@@ -12,6 +12,7 @@ import { ActivityHeatmap } from "@/components/app/activity-heatmap"
 import { StreakFreezeCard } from "@/components/app/streak-freeze-card"
 import { WeeklyStatsCard } from "@/components/app/weekly-stats-card"
 import { WeeklyGoalRing } from "@/components/app/weekly-goal-ring"
+import { GoalTrendSparkline } from "@/components/app/goal-trend-sparkline"
 import { AchievementsThisWeek } from "@/components/app/achievements-this-week"
 import { SessionNoteDialog } from "@/components/app/session-note-dialog"
 import { useState } from "react"
@@ -159,6 +160,9 @@ export function DashboardView() {
           </div>
         )}
       </div>
+
+      {/* Goal trend sparkline (full width) */}
+      <GoalTrendSparkline />
 
       <div className="grid lg:grid-cols-3 gap-6">
         {/* Recent sessions */}

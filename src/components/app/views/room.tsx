@@ -59,7 +59,7 @@ export function RoomView({ id }: { id: string }) {
   const [messages, setMessages] = useState<Msg[]>([])
   const [timer, setTimer] = useState<TimerState>({ mode: "idle", endsAt: null, round: 0, focusMin: 25, breakMin: 5, startedBy: null })
   const [chatText, setChatText] = useState("")
-  const [tab, setTab] = useState<"chat" | "participants">("chat")
+  const [tab, setTab] = useState<"chat" | "participants" | "queue">("chat")
   const [micOn, setMicOn] = useState(false)
   const [camOn, setCamOn] = useState(false)
   const [studyActive, setStudyActive] = useState(false)
@@ -286,6 +286,9 @@ export function RoomView({ id }: { id: string }) {
 
   const isHost = me?.id === room.owner.id
   const count = participants.length
+  const raisedHands = participants
+    .filter((p) => p.handRaised)
+    .sort((a, b) => (a.handRaisedAt ?? 0) - (b.handRaisedAt ?? 0))
   const remaining = timer.endsAt ? Math.max(0, Math.floor((timer.endsAt - now) / 1000)) : 0
   const mm = String(Math.floor(remaining / 60)).padStart(2, "0")
   const ss = String(remaining % 60).padStart(2, "0")
@@ -400,6 +403,12 @@ export function RoomView({ id }: { id: string }) {
             <button onClick={() => setTab("participants")} className={cn("flex-1 py-2.5 text-sm font-medium border-b-2", tab === "participants" ? "border-primary" : "border-transparent text-muted-foreground")}>
               <Users className="size-4 inline mr-1.5" /> People ({count})
             </button>
+            <button onClick={() => setTab("queue")} className={cn("px-3 py-2.5 text-sm font-medium border-b-2 relative", tab === "queue" ? "border-primary" : "border-transparent text-muted-foreground")} title="Raised hands queue">
+              <Hand className="size-4 inline" />
+              {raisedHands.length > 0 && (
+                <span className="absolute top-1 right-1 min-w-4 h-4 px-1 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center">{raisedHands.length}</span>
+              )}
+            </button>
             <button onClick={() => setShowWhiteboard(true)} className="px-3 py-2.5 text-sm font-medium border-b-2 border-transparent text-muted-foreground hover:text-brand-emerald" title="Open shared whiteboard">
               <Palette className="size-4 inline" />
             </button>
@@ -431,7 +440,7 @@ export function RoomView({ id }: { id: string }) {
                 <Button size="icon" onClick={sendMessage}><Send className="size-4" /></Button>
               </div>
             </>
-          ) : (
+          ) : tab === "participants" ? (
             <div className="flex-1 overflow-y-auto scroll-thin p-2 space-y-1">
               {[...participants].sort((a, b) => {
                 // raised hands first (by raisedAt), then everyone else
@@ -473,7 +482,44 @@ export function RoomView({ id }: { id: string }) {
                 </div>
               ))}
             </div>
-          )}
+          ) : tab === "queue" ? (
+            <div className="flex-1 overflow-y-auto scroll-thin p-3">
+              <div className="text-xs text-muted-foreground mb-2 flex items-center gap-1.5"><Hand className="size-3.5" /> Speaker queue</div>
+              {raisedHands.length === 0 ? (
+                <div className="text-center py-10">
+                  <Hand className="size-8 mx-auto mb-2 opacity-20" />
+                  <p className="text-xs text-muted-foreground">No raised hands. Click ✋ to be next to speak.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {raisedHands.map((p, i) => (
+                    <div key={p.userId} className={cn("flex items-center gap-3 p-2.5 rounded-lg border", i === 0 ? "bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800" : "bg-card")}>
+                      <span className={cn("size-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0", i === 0 ? "bg-amber-500 text-white" : "bg-muted text-muted-foreground")}>{i + 1}</span>
+                      <Avatar name={p.displayName} src={p.avatarUrl} size={32} />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate">
+                          {p.displayName}
+                          {i === 0 && <span className="ml-1.5 text-[10px] text-amber-600 dark:text-amber-400 font-semibold">NEXT</span>}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground">
+                          raised {p.handRaisedAt ? new Date(p.handRaisedAt).toLocaleTimeString("en", { hour: "numeric", minute: "2-digit" }) : ""}
+                        </div>
+                      </div>
+                      {isHost && (
+                        <button
+                          onClick={() => lowerHand(p.userId)}
+                          className="text-[10px] px-2 py-1 rounded-md bg-amber-500 hover:bg-amber-600 text-white"
+                          title="Lower hand"
+                        >
+                          Lower
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : null}
         </aside>
       </div>
 

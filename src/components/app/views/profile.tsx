@@ -93,18 +93,32 @@ export function ProfileView() {
         </CardContent>
       </Card>
 
-      {/* Badges */}
+      {/* Badges showcase */}
       <Card>
         <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Award className="size-4 text-amber-500" /> Badges ({earned.length})</CardTitle></CardHeader>
         <CardContent>
           <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
             {earned.map((b: any) => (
-              <div key={b.slug} className="rounded-lg border p-3 text-center bg-accent/30" title={b.description}>
-                <div className="text-2xl">{tierEmoji(b.tier)}</div>
+              <div
+                key={b.slug}
+                className="group relative rounded-lg border p-3 text-center bg-gradient-to-b from-accent/40 to-accent/10 hover:shadow-md transition-all cursor-default"
+                title={b.description}
+              >
+                <div className="text-2xl group-hover:scale-110 transition-transform">{tierEmoji(b.tier)}</div>
                 <div className="text-[10px] font-semibold mt-1 leading-tight">{b.name}</div>
+                <div className="text-[8px] text-muted-foreground mt-0.5 capitalize">{b.tier}</div>
+                {/* hover tooltip */}
+                <div className="absolute z-10 bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-popover text-popover-foreground text-xs rounded-lg px-2 py-1 shadow-lg whitespace-nowrap border max-w-[160px] normal-case font-normal">
+                  {b.description}
+                </div>
               </div>
             ))}
-            {earned.length === 0 && <p className="text-sm text-muted-foreground col-span-full py-4">No badges yet. Study to earn your first!</p>}
+            {earned.length === 0 && (
+              <div className="col-span-full text-center py-6">
+                <Award className="size-8 mx-auto mb-2 opacity-30" />
+                <p className="text-sm text-muted-foreground">No badges yet. Study to earn your first!</p>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

@@ -507,3 +507,52 @@ Unresolved / Next-phase priorities (for the next webDevReview round):
 - Dashboard: study-vs-goal trend sparkline.
 - More landing polish: hero parallax, animated exam logos.
 - Settings: account deletion flow (GDPR-style).
+
+---
+Task ID: CRON-8
+Agent: webDevReview cron (round 8)
+Task: QA the platform, add account deletion, badges showcase, speaker queue, goal trend sparkline
+
+Current project status / assessment:
+- Platform stable from CRON-7. All 58 API endpoints return 200, all 19 views render correctly, zero console errors.
+- QA note: the initial QA loop showed "Welcome back" on all authed pages — this was a timing artifact (2.2s wait wasn't enough for the `me` state to load after login). Re-verified with longer waits: all pages render correctly. No real bug.
+
+Current goals / completed modifications / verification results:
+
+  1. Account deletion flow (NEW) — GDPR-style
+     - API: POST /api/auth/delete — permanently deletes the user + all associated data via Prisma onDelete: Cascade (profile, sessions, goals, streak, badges, friendships, blocks, reports, messages, notifications, payments, subscription). Requires { confirm: "DELETE" } + password (for email/password accounts). Closes owned rooms (preserves chat for others). Records an audit log entry before deletion.
+     - Frontend: new DangerZoneCard in settings — red-bordered card with AlertTriangle icon, "Delete my account" button opens a Dialog with password field + "Type DELETE to confirm" input. Submit disabled until both are correct. On success: clears token, logs out, redirects to landing.
+     - Verified: signup fresh user → delete without confirm → 400 CONFIRMATION_REQUIRED; wrong password → 400 INVALID_PASSWORD; correct password → 200 deleted; /api/auth/me → 401 (user gone).
+
+  2. Badges showcase grid on profile (NEW) — styling
+     - Enhanced the profile badges card: each badge now has a gradient background (accent/40 → accent/10), hover scale on the emoji, tier label below the name, and a hover tooltip showing the badge description. Empty state has an Award icon + helpful message.
+     - Verified: profile badges section present.
+
+  3. Room "next speaker" queue (NEW)
+     - Frontend: new "Queue" tab in the room side panel (Hand icon + count badge). Shows raised hands in order (by handRaisedAt), with the first person highlighted as "NEXT" (amber background + badge). Each entry shows position number, avatar, name, raise time, and a "Lower" button for the host. Empty state: "No raised hands. Click ✋ to be next to speak."
+     - The tab type changed from "chat" | "participants" to "chat" | "participants" | "queue". Fixed the ternary chain (changed the implicit else to explicit `tab === "participants" ?`).
+     - Verified: queue tab button present, click opens "Speaker queue" + "No raised hands" empty state.
+
+  4. Study-vs-goal trend sparkline (NEW) — styling
+     - Component: new GoalTrendSparkline (src/components/app/goal-trend-sparkline.tsx) — compact SVG sparkline showing the last 14 days of study minutes (emerald line + area) vs the daily goal (saffron dashed line). Dots are saffron when the goal was hit, emerald otherwise. Header shows hit count (X/14). Footer shows date range + daily average. Legend below.
+     - Placed on the Dashboard (full width, between the live-rooms section and the recent-sessions/badges grid).
+     - Verified: dashboard shows "Goal trend" card.
+
+- Ran `bun run lint` → clean (0 errors, 0 warnings) after fixing a ternary parse error (changed implicit else to explicit `tab === "participants" ?`).
+- All features browser-verified with agent-browser (zero console errors).
+
+Stage Summary:
+- Platform remains fully stable; 4 new features added.
+- New API endpoint (/api/auth/delete) is backward-compatible. The Android contract gains an account-deletion endpoint — nothing breaks.
+- All features verified: account delete round-trip, danger zone dialog, badges showcase, speaker queue, goal trend sparkline.
+
+Unresolved / Next-phase priorities (for the next webDevReview round):
+- Update docs/mobile-contract.md to document: POST /api/auth/delete (account deletion with confirm + password).
+- Real LiveKit/Supabase Auth/Redis swap (still sandbox-simulated).
+- Push notifications (FCM) — still the remaining realtime-out-of-app channel.
+- Playwright E2E tests for the golden path.
+- Profile: show locked badges (greyed out) so users can see what's achievable.
+- Room: co-host promotion from the queue tab.
+- Dashboard: weekly comparison vs last week (already in WeeklyStatsCard, could add a mini chart).
+- More landing polish: hero parallax, animated exam logos.
+- Settings: data export (CSV already exists on journal; add a full-profile JSON export).

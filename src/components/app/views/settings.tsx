@@ -11,9 +11,13 @@ import { Textarea } from "@/components/ui/textarea"
 import { useAuth } from "@/lib/auth-context"
 import { useRouter } from "@/lib/router"
 import { EXAM_META } from "@/components/app/brand"
-import { Save, LogOut, Palette, Globe, Target, Crown, Shield, Bell } from "lucide-react"
+import { Save, LogOut, Palette, Globe, Target, Crown, Shield, Bell, AlertTriangle } from "lucide-react"
 import { toast } from "sonner"
 import { Switch } from "@/components/ui/switch"
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from "@/components/ui/dialog"
+import { setToken } from "@/lib/api-client"
 
 const TIMEZONES = [
   "Asia/Kolkata", "Asia/Calcutta", "Asia/Dubai", "Asia/Singapore", "Asia/Tokyo",
@@ -122,6 +126,8 @@ export function SettingsView() {
         <Button variant="destructive" onClick={() => { logout(); navigate("/") }}><LogOut className="size-4" /> Log out</Button>
         <Button onClick={() => save.mutate()} disabled={save.isPending}><Save className="size-4" /> Save changes</Button>
       </div>
+
+      <DangerZoneCard />
     </div>
   )
 }
@@ -178,5 +184,99 @@ function NotificationPrefsCard() {
         <p className="text-[11px] text-muted-foreground pt-2">Changes apply to future notifications. Existing ones are kept.</p>
       </CardContent>
     </Card>
+  )
+}
+
+function DangerZoneCard() {
+  const { me, logout } = useAuth()
+  const { navigate } = useRouter()
+  const [open, setOpen] = useState(false)
+  const [password, setPassword] = useState("")
+  const [confirmText, setConfirmText] = useState("")
+  const [busy, setBusy] = useState(false)
+  const hasPassword = Boolean(me?.email) // all sandbox accounts have passwords; OAuth-only users skip
+
+  const del = useMutation({
+    mutationFn: async () => {
+      setBusy(true)
+      try {
+        await api.post("/auth/delete", {
+          password: password || undefined,
+          confirm: confirmText === "DELETE" ? "DELETE" : undefined,
+        })
+        setToken(null)
+        logout()
+        toast.success("Account deleted. Sorry to see you go.")
+        navigate("/", { replace: true })
+      } catch (e: any) {
+        toast.error(e.message || "Failed to delete account")
+      } finally {
+        setBusy(false)
+      }
+    },
+  })
+
+  const canSubmit = confirmText === "DELETE" && (!hasPassword || password.length > 0)
+
+  return (
+    <>
+      <Card className="border-destructive/30">
+        <CardContent className="p-5">
+          <div className="flex items-start gap-3">
+            <span className="size-10 rounded-xl bg-destructive/10 flex items-center justify-center shrink-0">
+              <AlertTriangle className="size-5 text-destructive" />
+            </span>
+            <div className="flex-1">
+              <h3 className="font-semibold text-sm text-destructive">Danger zone</h3>
+              <p className="text-xs text-muted-foreground mt-0.5 mb-3">
+                Permanently delete your account and all study data. This cannot be undone. Your rooms will be closed; chat history visible to others is preserved.
+              </p>
+              <Button variant="destructive" size="sm" onClick={() => setOpen(true)}>
+                Delete my account
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive"><AlertTriangle className="size-5" /> Delete account?</DialogTitle>
+            <DialogDescription>
+              This permanently removes your profile, study sessions, streaks, badges, friendships, notifications and subscription. <strong>This action cannot be undone.</strong>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            {hasPassword && (
+              <div className="space-y-1.5">
+                <Label>Password</Label>
+                <Input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Enter your password to confirm"
+                  autoFocus
+                />
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label>Type <code className="bg-muted px-1 rounded">DELETE</code> to confirm</Label>
+              <Input
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value)}
+                placeholder="DELETE"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={busy}>Cancel</Button>
+            <Button variant="destructive" onClick={() => del.mutate()} disabled={!canSubmit || busy}>
+              {busy ? "Deleting…" : "Permanently delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
