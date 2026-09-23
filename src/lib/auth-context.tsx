@@ -149,12 +149,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [supabase, fetchMe])
 
   // ── Google OAuth via Supabase ──
+  // Requires Google provider to be enabled in Supabase Dashboard → Authentication → Providers → Google.
+  // If not enabled, shows a clear error instead of a generic crash.
   const loginWithGoogle = useCallback(async () => {
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: window.location.origin }
-    })
-    if (error) throw new Error(error.message)
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: { redirectTo: window.location.origin }
+      })
+      if (error) {
+        if (error.message.includes("provider is not enabled") || error.message.includes("Unsupported provider")) {
+          throw new Error("Google sign-in is not enabled yet. Please use email/password to sign up, or ask the admin to enable Google OAuth in Supabase Dashboard → Authentication → Providers → Google.")
+        }
+        throw new Error(error.message)
+      }
+    } catch (e: any) {
+      if (e.message.includes("provider is not enabled") || e.message.includes("Unsupported provider")) {
+        throw new Error("Google sign-in is not enabled yet. Please use email/password to sign up, or ask the admin to enable Google OAuth in Supabase Dashboard → Authentication → Providers → Google.")
+      }
+      throw e
+    }
   }, [supabase])
 
   // ── Logout ──

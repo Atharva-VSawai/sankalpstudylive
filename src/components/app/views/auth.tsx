@@ -71,7 +71,7 @@ export function AuthView({ mode }: { mode: "login" | "signup" }) {
 
         <Card>
           <CardContent className="p-6">
-            <Button variant="outline" className="w-full" onClick={google} disabled={busy}>
+            <Button variant="outline" className="w-full" onClick={google} disabled={busy} title="Requires Google OAuth to be enabled in Supabase Dashboard">
               <GoogleIcon className="size-4" /> Continue with Google
             </Button>
             <div className="relative my-4 text-center">
