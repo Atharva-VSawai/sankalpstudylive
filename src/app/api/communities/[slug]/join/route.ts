@@ -28,6 +28,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
   const { slug } = await params
   const community = await db.community.findUnique({ where: { slug } })
   if (!community) return notFound("Community not found")
+  const isGeneralStudy = community.slug === "general"
+  const profile = await db.profile.findUnique({ where: { userId: ctx.userId }, select: { onboardingComplete: true } })
+  if (!isGeneralStudy && !profile?.onboardingComplete) return forbidden("Complete onboarding before joining communities.", "ONBOARDING_REQUIRED")
 
   // ── Atomic max-2 check + create (race-safe) ──
   // We use a Prisma transaction with a user-level lock (SELECT ... FOR UPDATE
@@ -55,7 +58,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
 
       // Count current memberships (now serialized — no concurrent insert can
       // change this count between our read and our create).
-      const count = await tx.communityMember.count({ where: { userId: ctx.userId } })
+      // General Study is open to everyone and never consumes one of the two
+      // community-specific membership slots.
+      const count = await tx.communityMember.count({
+        where: { userId: ctx.userId, community: { slug: { not: "general" } } },
+      })
       if (count >= MAX_COMMUNITY_MEMBERSHIPS) {
         return { status: "limit" as const, count }
       }
@@ -70,7 +77,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
       })
 
       // Post-create safety check (defense-in-depth backstop).
-      const afterCount = await tx.communityMember.count({ where: { userId: ctx.userId } })
+      const afterCount = await tx.communityMember.count({
+        where: { userId: ctx.userId, community: { slug: { not: "general" } } },
+      })
       if (afterCount > MAX_COMMUNITY_MEMBERSHIPS) {
         await tx.communityMember.delete({
           where: { communityId_userId: { communityId: community.id, userId: ctx.userId } },

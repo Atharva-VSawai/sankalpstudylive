@@ -1,6 +1,7 @@
 "use client"
 
 import { cn } from "@/lib/utils"
+import { COMMUNITY_ORDER } from "@/lib/community-order"
 import { BrandLogo } from "@/components/branding/logo"
 
 // Re-export the centralized BrandLogo so existing `import { Logo } from brand`
@@ -83,16 +84,21 @@ export function timeAgo(date: Date | string | number): string {
   return new Date(t).toLocaleDateString()
 }
 
-export const EXAM_META: Record<string, { color: string; tagline: string }> = {
+const EXAM_META_VALUES: Record<string, { color: string; tagline: string }> = {
+  "General Study": { color: "#64748b", tagline: "Open study" },
   GATE: { color: "#10b981", tagline: "Engineering / M.Tech / PSU" },
   JEE: { color: "#f59e0b", tagline: "IIT / NIT / Engineering" },
   NEET: { color: "#ef4444", tagline: "MBBS / Medical" },
   UPSC: { color: "#8b5cf6", tagline: "Civil Services" },
+  "NEET PG": { color: "#dc2626", tagline: "Postgraduate Medical" },
   CAT: { color: "#0ea5e9", tagline: "MBA / IIM" },
   SSC: { color: "#14b8a6", tagline: "Govt Jobs (CGL/CHSL)" },
   Banking: { color: "#eab308", tagline: "IBPS / SBI / RBI" },
   MPSC: { color: "#a855f7", tagline: "Maharashtra State PSC" },
   Placements: { color: "#ec4899", tagline: "Campus placements" },
   DSA: { color: "#22c55e", tagline: "Coding / LeetCode" },
-  "General Study": { color: "#64748b", tagline: "Open study" },
 }
+
+export const EXAM_META: Record<string, { color: string; tagline: string }> = Object.fromEntries(
+  COMMUNITY_ORDER.map(({ name }) => [name, EXAM_META_VALUES[name]])
+)

@@ -1,18 +1,22 @@
 import { db } from "@/lib/db"
 import { hashPassword } from "@/lib/auth"
 
+const ADMIN_EMAIL = "support@sankalpstudylive.in"
+const LEGACY_ADMIN_EMAIL = "admin@sankalp.in"
+
 const COMMUNITIES = [
+  { slug: "general", name: "General Study", description: "For everyone — open study rooms for self-study, assignments and any exam.", examGoal: "General Study", color: "#64748b", tags: ["open", "self-study", "any"] },
   { slug: "gate", name: "GATE", description: "Graduate Aptitude Test in Engineering — for engineering graduates targeting PSUs and M.Tech admissions.", examGoal: "GATE", color: "#10b981", tags: ["engineering", "psu", "mtech"] },
   { slug: "jee", name: "JEE", description: "Joint Entrance Examination — for aspirants targeting IITs, NITs and top engineering colleges.", examGoal: "JEE", color: "#f59e0b", tags: ["engineering", "iit", "12th"] },
   { slug: "neet", name: "NEET", description: "National Eligibility cum Entrance Test — for future doctors targeting MBBS/BDS seats.", examGoal: "NEET", color: "#ef4444", tags: ["medical", "mbbs", "12th"] },
   { slug: "upsc", name: "UPSC", description: "Civil Services Examination — for future IAS, IPS, IFS officers and public servants.", examGoal: "UPSC", color: "#8b5cf6", tags: ["civil-services", "ias", "gs"] },
+  { slug: "neet-pg", name: "NEET PG", description: "National Eligibility cum Entrance Test for postgraduate medical admissions.", examGoal: "NEET PG", color: "#dc2626", tags: ["medical", "pg", "residency"] },
   { slug: "cat", name: "CAT", description: "Common Admission Test — for MBA aspirants targeting IIMs and top B-schools.", examGoal: "CAT", color: "#0ea5e9", tags: ["mba", "iim", "aptitude"] },
   { slug: "ssc", name: "SSC", description: "Staff Selection Commission — for government job aspirants (CGL, CHSL, MTS).", examGoal: "SSC", color: "#14b8a6", tags: ["govt-jobs", "cgl", "reasoning"] },
   { slug: "banking", name: "Banking", description: "Bank PO, Clerk, RRB exams — IBPS, SBI and RBI preparations.", examGoal: "Banking", color: "#eab308", tags: ["bank-po", "ibps", "sbi"] },
   { slug: "mpsc", name: "MPSC", description: "Maharashtra Public Service Commission — state civil services preparation.", examGoal: "MPSC", color: "#a855f7", tags: ["maharashtra", "state-psc", "gs"] },
   { slug: "placements", name: "Placements", description: "Campus placements — coding rounds, aptitude, group discussions and interviews.", examGoal: "Placements", color: "#ec4899", tags: ["placements", "interview", "coding"] },
   { slug: "dsa", name: "DSA", description: "Data Structures & Algorithms — LeetCode, Codeforces, competitive programming and interview prep.", examGoal: "DSA", color: "#22c55e", tags: ["coding", "leetcode", "interview"] },
-  { slug: "general", name: "General Study", description: "For everyone — open study rooms for self-study, assignments and any exam.", examGoal: "General Study", color: "#64748b", tags: ["open", "self-study", "any"] },
 ]
 
 const BADGES = [
@@ -50,8 +54,14 @@ async function main() {
   }
 
   // Demo admin + a few demo users with realistic Indian names for leaderboards
+  // Migrate the original sandbox admin address without changing its password.
+  const legacyAdmin = await db.user.findUnique({ where: { email: LEGACY_ADMIN_EMAIL } })
+  const currentAdmin = await db.user.findUnique({ where: { email: ADMIN_EMAIL } })
+  if (legacyAdmin && !currentAdmin) {
+    await db.user.update({ where: { id: legacyAdmin.id }, data: { email: ADMIN_EMAIL } })
+  }
   const demoUsers = [
-    { email: "admin@sankalp.in", username: "admin", displayName: "Sankalp Admin", role: "admin", examGoal: "General Study", password: "admin123" },
+    { email: ADMIN_EMAIL, username: "admin", displayName: "Sankalp Admin", role: "admin", examGoal: "General Study", password: "admin123" },
     { email: "aarav@sankalp.in", username: "aarav", displayName: "Aarav Sharma", role: "user", examGoal: "GATE", password: "demo1234" },
     { email: "diya@sankalp.in", username: "diya", displayName: "Diya Patel", role: "user", examGoal: "NEET", password: "demo1234" },
     { email: "vihaan@sankalp.in", username: "vihaan", displayName: "Vihaan Reddy", role: "user", examGoal: "UPSC", password: "demo1234" },
@@ -118,7 +128,7 @@ async function main() {
   // ── Seed permanent default Focus Rooms for each exam community ──
   console.log("Seeding default focus rooms…")
   // Find the admin user to be the owner of system rooms
-  const adminUser = await db.user.findUnique({ where: { email: "admin@sankalp.in" } })
+  const adminUser = await db.user.findUnique({ where: { email: ADMIN_EMAIL } })
   const adminUserId = adminUser?.id ?? (await db.user.findFirst())?.id
   if (!adminUserId) {
     console.warn("No admin user found — skipping default room seed")
@@ -127,16 +137,23 @@ async function main() {
       const community = await db.community.findUnique({ where: { slug: c.slug } })
       if (!community) continue
       const roomName = `${c.name} Focus Room`
+      // General Study is intentionally platform-wide, not community-gated.
+      const roomCommunityId = c.slug === "general" ? null : community.id
       const existing = await db.room.findFirst({
-        where: { name: roomName, isDefaultRoom: true, communityId: community.id },
+        where: { name: roomName, isDefaultRoom: true },
       })
-      if (existing) continue // already seeded
+      if (existing) {
+        if (c.slug === "general" && existing.communityId !== null) {
+          await db.room.update({ where: { id: existing.id }, data: { communityId: null } })
+        }
+        continue // already seeded
+      }
       await db.room.create({
         data: {
           name: roomName,
           description: `Study with other ${c.name} aspirants.`,
           ownerId: adminUserId,
-          communityId: community.id,
+          communityId: roomCommunityId,
           livekitRoom: `sankalp-default-${c.slug}`,
           isLive: true,
           isListed: true,

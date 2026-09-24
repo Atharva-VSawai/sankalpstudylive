@@ -28,6 +28,7 @@ export function RoomsView() {
   const { data } = useQuery({
     queryKey: ["rooms", q, liveOnly],
     queryFn: () => api.get<{ rooms: any[] }>("/rooms", { q: q || undefined, live: liveOnly ? "true" : undefined, limit: 40 }),
+    refetchInterval: 10000,
   })
   const rooms = data?.rooms ?? []
 

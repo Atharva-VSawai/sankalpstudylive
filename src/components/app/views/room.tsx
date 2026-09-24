@@ -58,6 +58,7 @@ export function RoomView({ id }: { id: string }) {
   const sessionIdRef = useRef<string | null>(null)
   const heartbeatRef = useRef<any>(null)
   const qualityReassertRef = useRef<any>(null)
+  const cleanupStartedRef = useRef(false)
 
   // ── Free-allowance entitlement (server-authoritative) ──
   // The countdown is purely visual; the server is the source of truth. We fetch
@@ -179,6 +180,11 @@ export function RoomView({ id }: { id: string }) {
 
         setConnectionState(lkRoom.state)
 
+        // Keep the server-side waiting-room count in sync with the actual
+        // LiveKit connection. Token issuance creates the durable RoomMember,
+        // but presence is what drives the count shown on room cards.
+        await api.post("/rooms/" + id + "/presence", { camOn: false })
+
         // 4. Listen for participant events
         const updateParticipants = () => {
           const all = Array.from(lkRoom.remoteParticipants.values())
@@ -215,7 +221,7 @@ export function RoomView({ id }: { id: string }) {
           setConnectionState(state)
           if (state === ConnectionState.Disconnected) {
             // End study session (accrues live-room time server-side)
-            if (sessionIdRef.current) {
+            if (!cleanupStartedRef.current && sessionIdRef.current) {
               api.post("/study/sessions/" + sessionIdRef.current + "/stop").catch(() => {})
               sessionIdRef.current = null
             }
@@ -308,6 +314,8 @@ export function RoomView({ id }: { id: string }) {
     connect()
 
     return () => {
+      if (cleanupStartedRef.current) return
+      cleanupStartedRef.current = true
       cancelled = true
       if (lkRoomRef.current) {
         lkRoomRef.current.disconnect()
@@ -315,9 +323,10 @@ export function RoomView({ id }: { id: string }) {
       }
       if (heartbeatRef.current) clearInterval(heartbeatRef.current)
       if (qualityReassertRef.current) clearInterval(qualityReassertRef.current)
-      if (sessionIdRef.current) {
-        api.post("/study/sessions/" + sessionIdRef.current + "/stop").catch(() => {})
-        sessionIdRef.current = null
+      const sessionId = sessionIdRef.current
+      sessionIdRef.current = null
+      if (sessionId) {
+        api.post("/study/sessions/" + sessionId + "/stop").catch(() => {})
       }
       api.post("/rooms/" + id + "/presence", { action: "leave" }).catch(() => {})
     }
@@ -500,26 +509,35 @@ export function RoomView({ id }: { id: string }) {
   }, [])
 
   // ── Leave room ──
-  const leave = useCallback(async () => {
+  const leave = useCallback(() => {
+    if (cleanupStartedRef.current) return
+    cleanupStartedRef.current = true
     setLeft(true)
     // Finalize the timelapse (if recording) and upload it in the background.
     // This does NOT block the leave — the user exits immediately, the upload
     // continues via the async finalizeTimelapseAndUpload call.
     finalizeTimelapseAndUpload()
+    const sessionId = sessionIdRef.current
+    sessionIdRef.current = null
     if (lkRoomRef.current) {
       lkRoomRef.current.disconnect()
       lkRoomRef.current = null
     }
     if (heartbeatRef.current) clearInterval(heartbeatRef.current)
     if (qualityReassertRef.current) clearInterval(qualityReassertRef.current)
-    if (sessionIdRef.current) {
-      try { await api.post("/study/sessions/" + sessionIdRef.current + "/stop") } catch {}
-      sessionIdRef.current = null
-    }
-    await api.post("/rooms/" + id + "/presence", { action: "leave" }).catch(() => {})
+    // Keep server cleanup authoritative, but do not make the user wait for it.
+    if (sessionId) api.post("/study/sessions/" + sessionId + "/stop").catch(() => {})
+    api.post("/rooms/" + id + "/presence", { action: "leave" }).catch(() => {})
     qc.invalidateQueries({ queryKey: ["rooms"] })
     navigate("/rooms")
   }, [id, navigate, qc, finalizeTimelapseAndUpload])
+
+  const canEndRoom = room?.owner?.id === me?.id || me?.role === "admin" || me?.role === "moderator"
+  const endRoom = useCallback(() => {
+    // The server remains the authority for owner/moderator authorization.
+    void api.del(`/rooms/${id}`).catch((e: any) => toast.error(e?.message || "Failed to end room"))
+    leave()
+  }, [id, leave])
 
   // ── Camera toggle ──
   const toggleCam = async () => {
@@ -656,7 +674,12 @@ export function RoomView({ id }: { id: string }) {
             {connectionState === ConnectionState.Reconnecting && " · Reconnecting…"}
           </p>
         </div>
-        <div className="w-16 flex justify-end">
+        <div className="flex items-center justify-end gap-2 min-w-16">
+          {canEndRoom && (
+            <button onClick={endRoom} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-destructive hover:bg-destructive/10" title="End room">
+              <Square className="size-3.5" /> <span className="hidden sm:inline">End room</span>
+            </button>
+          )}
           {isConnected && count > 0 && <span className="size-2 rounded-full bg-brand-emerald animate-pulse" />}
         </div>
       </div>

@@ -7,26 +7,21 @@ import { useTheme } from "next-themes"
 // ─────────────────────────────────────────────────────────────────────────────
 // Sankalp Study Live — centralized branding component.
 // ─────────────────────────────────────────────────────────────────────────────
-// Uses the REAL Sankalp logo assets extracted from the user's uploaded brand
-// board and saved to /public/branding/. The icon mark (logo-mark.png) is a
-// transparent PNG showing the green-gradient "S" with leaves + book + sparkle.
+// Uses the supplied Sankalp brand artwork saved as clean transparent PNGs in
+// /public/branding/. Full wordmarks switch between the light and dark artwork;
+// the mark-only asset is shared because its green/gold mark works on both.
 //
 // Theme behavior:
-//   - The icon mark is the same in both themes (it's a colorful gradient on
-//     transparent — strong contrast on both light and dark surfaces).
-//   - The wordmark "Sankalp" uses `--brand-ink` CSS variable (dark on light,
-//     light on dark) so it's always readable — pure CSS, no JS guard needed.
+//   - light theme: logo-full-light.png (dark teal wordmark)
+//   - dark theme: logo-full-dark.png (white wordmark)
 //
 // Responsive variants:
 //   - `full`: icon mark + "Sankalp" wordmark (desktop navbar)
 //   - `compact`: icon mark + smaller wordmark (tablet)
 //   - `icon`: icon mark only (mobile / favicon / loading screen)
 //
-// Performance:
-//   - Uses next/image for the icon mark (optimized, lazy-loadable, no layout
-//     shift via fixed width/height).
-//   - The wordmark is text (zero bytes).
-//   - The icon PNG is ~30 KB at 256px — negligible.
+// Performance: the full logo is a fixed-size local next/image asset, so the
+// header has no layout shift and the browser can cache the selected theme file.
 //
 // Accessibility:
 //   - aria-label="Sankalp Study Live" on the wrapper.
@@ -46,10 +41,12 @@ export function BrandLogo({
   size?: number
 }) {
   const showText = variant ? variant !== "icon" : withText
-  const textClass =
-    variant === "compact"
-      ? "text-base font-bold tracking-tight"
-      : "text-lg font-bold tracking-tight"
+  const { resolvedTheme } = useTheme()
+  const fullLogo = resolvedTheme === "dark"
+    ? "/branding/logo-full-dark.png"
+    : "/branding/logo-full-light.png"
+  const logoWidth = variant === "compact" ? Math.round(size * 3.4) : Math.round(size * 4.2)
+  const logoHeight = Math.round(logoWidth / 2)
 
   return (
     <span
@@ -57,24 +54,26 @@ export function BrandLogo({
       aria-label="Sankalp Study Live"
       role="img"
     >
-      {/* ── The icon mark: the real Sankalp "S" with leaves + book + sparkle.
-          Transparent PNG, loaded via next/image for optimization. ── */}
-      <Image
-        src="/branding/logo-mark.png"
-        alt=""
-        width={size}
-        height={size}
-        priority
-        className="shrink-0 rounded-lg"
-        style={{ width: size, height: size }}
-      />
-      {showText && (
-        <span
-          className={cn("text-brand-ink transition-colors", textClass)}
-          style={{ lineHeight: 1 }}
-        >
-          Sankalp
-        </span>
+      {showText ? (
+        <Image
+          src={fullLogo}
+          alt="Sankalp Study Live"
+          width={logoWidth}
+          height={logoHeight}
+          priority
+          className="shrink-0 object-contain object-left"
+          style={{ width: logoWidth, height: logoHeight }}
+        />
+      ) : (
+        <Image
+          src="/branding/logo-mark.png"
+          alt=""
+          width={size}
+          height={size}
+          priority
+          className="shrink-0 rounded-lg"
+          style={{ width: size, height: size }}
+        />
       )}
     </span>
   )

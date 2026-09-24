@@ -80,8 +80,8 @@ export function AppShell() {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <BrandLogo variant="icon" size={48} />
-          <p className="text-sm text-muted-foreground">Loading Sankalp…</p>
+          <BrandLogo variant="full" size={40} />
+          <p className="text-sm text-muted-foreground">Preparing your study space…</p>
         </div>
       </div>
     )

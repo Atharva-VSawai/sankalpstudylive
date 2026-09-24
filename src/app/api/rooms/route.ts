@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server"
 import { db } from "@/lib/db"
-import { ok, unauthorized, badRequest, getAuth } from "@/lib/api"
+import { ok, unauthorized, badRequest, forbidden, getAuth } from "@/lib/api"
 import { randomBytes } from "crypto"
+import { communityOrderIndex } from "@/lib/community-order"
 
 // GET /api/rooms — discover live + listed rooms
 export async function GET(req: NextRequest) {
@@ -30,8 +31,7 @@ export async function GET(req: NextRequest) {
     db.room.count({ where }),
   ])
 
-  return ok({
-    rooms: rooms.map((r) => ({
+  const mappedRooms = rooms.map((r) => ({
       id: r.id,
       name: r.name,
       description: r.description,
@@ -50,7 +50,16 @@ export async function GET(req: NextRequest) {
         displayName: r.owner.profile?.displayName ?? null,
         avatarUrl: r.owner.profile?.avatarUrl ?? null,
       },
-    })),
+    })).sort((a, b) => {
+      const communityRank = communityOrderIndex(a.community?.slug) - communityOrderIndex(b.community?.slug)
+      if (communityRank !== 0) return communityRank
+      if (a.isLive !== b.isLive) return a.isLive ? -1 : 1
+      if (a.participantCount !== b.participantCount) return b.participantCount - a.participantCount
+      return new Date(b.startedAt ?? 0).getTime() - new Date(a.startedAt ?? 0).getTime()
+    })
+
+  return ok({
+    rooms: mappedRooms,
     page,
     limit,
     total,
@@ -61,6 +70,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const ctx = await getAuth(req)
   if (!ctx) return unauthorized()
+  const profile = await db.profile.findUnique({ where: { userId: ctx.userId }, select: { onboardingComplete: true } })
+  if (!profile?.onboardingComplete) return forbidden("Complete onboarding before creating rooms.", "ONBOARDING_REQUIRED")
   const body = await req.json().catch(() => null)
   const name = String(body?.name || "").trim()
   const description = body?.description ? String(body.description) : null
@@ -80,11 +91,17 @@ export async function POST(req: NextRequest) {
   if (name.length > 80) return badRequest("Room name must be under 80 characters")
 
   let communityId: string | null = null
-  if (communitySlug) {
-    const community = await db.community.findUnique({ where: { slug: communitySlug } })
-    if (!community) return badRequest("Unknown community")
-    communityId = community.id
+  const targetCommunitySlug = communitySlug || "general"
+  const community = await db.community.findUnique({ where: { slug: targetCommunitySlug } })
+  if (!community) return badRequest("Unknown community")
+  if (targetCommunitySlug !== "general") {
+    const membership = await db.communityMember.findUnique({
+      where: { communityId_userId: { communityId: community.id, userId: ctx.userId } },
+      select: { id: true },
+    })
+    if (!membership) return forbidden("Join this community before creating a room for it.", "NOT_MEMBER")
   }
+  communityId = community.id
 
   const livekitRoom = `sankalp-${randomBytes(6).toString("hex")}`
   const room = await db.room.create({

@@ -3,7 +3,7 @@ import { db } from "@/lib/db"
 import { getAuth, ok, badRequest, unauthorized } from "@/lib/api"
 import { loadMe } from "@/lib/me"
 
-const EXAMS = ["GATE", "JEE", "NEET", "UPSC", "CAT", "SSC", "Banking", "MPSC", "Placements", "DSA", "General Study"]
+const EXAMS = ["General Study", "GATE", "JEE", "NEET", "UPSC", "NEET PG", "CAT", "SSC", "Banking", "MPSC", "Placements", "DSA"]
 
 // PATCH /api/onboarding — completes study-goal onboarding
 export async function PATCH(req: NextRequest) {
@@ -37,22 +37,17 @@ export async function PATCH(req: NextRequest) {
   // create a duplicate membership; only increment memberCount on first join.
   const community = await db.community.findUnique({ where: { slug: slugify(examGoal) } })
   if (community) {
-    const existing = await db.communityMember.findUnique({
-      where: { communityId_userId: { communityId: community.id, userId: ctx.userId } },
+    await db.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT 1 FROM "User" WHERE id = ${ctx.userId} FOR UPDATE`
+      const existing = await tx.communityMember.findUnique({ where: { communityId_userId: { communityId: community.id, userId: ctx.userId } } })
+      if (existing) return
+      const count = await tx.communityMember.count({
+        where: { userId: ctx.userId, community: { slug: { not: "general" } } },
+      })
+      if (count >= 2) return
+      await tx.communityMember.create({ data: { communityId: community.id, userId: ctx.userId, role: "member" } })
+      await tx.community.update({ where: { id: community.id }, data: { memberCount: { increment: 1 } } })
     })
-    if (!existing) {
-      // Count current memberships; only join if under the max-2 limit.
-      const count = await db.communityMember.count({ where: { userId: ctx.userId } })
-      if (count < 2) {
-        await db.communityMember.create({
-          data: { communityId: community.id, userId: ctx.userId, role: "member" },
-        })
-        await db.community.update({
-          where: { id: community.id },
-          data: { memberCount: { increment: 1 } },
-        })
-      }
-    }
   }
   const me = await loadMe(ctx.userId)
   return ok(me)

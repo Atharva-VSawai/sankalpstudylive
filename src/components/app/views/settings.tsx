@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { api, ApiError } from "@/lib/api-client"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -18,6 +18,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog"
 import { setToken } from "@/lib/api-client"
+import { createBrowserClient, isSupabaseConfigured } from "@/lib/supabase"
 
 const TIMEZONES = [
   "Asia/Kolkata", "Asia/Calcutta", "Asia/Dubai", "Asia/Singapore", "Asia/Tokyo",
@@ -147,6 +148,7 @@ export function SettingsView() {
         </CardContent>
       </Card>
 
+      <PasswordSecurityCard />
       <NotificationPrefsCard />
 
       {/* ── Support contact ── */}
@@ -234,6 +236,89 @@ function NotificationPrefsCard() {
   )
 }
 
+function PasswordSecurityCard() {
+  const { me } = useAuth()
+  const supabase = useMemo(() => createBrowserClient(), [])
+  const [currentPassword, setCurrentPassword] = useState("")
+  const [newPassword, setNewPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [resetBusy, setResetBusy] = useState(false)
+
+  const changePassword = async () => {
+    if (newPassword.length < 8) {
+      toast.error("New password must be at least 8 characters.")
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error("New passwords do not match.")
+      return
+    }
+    setBusy(true)
+    try {
+      if (isSupabaseConfigured) {
+        const { error: verifyError } = await supabase.auth.signInWithPassword({
+          email: me?.email ?? "",
+          password: currentPassword,
+        })
+        if (verifyError) throw new Error("Current password is incorrect.")
+        const { error } = await supabase.auth.updateUser({ password: newPassword })
+        if (error) throw new Error(error.message)
+      } else {
+        await api.post("/auth/password/change", { currentPassword, newPassword })
+      }
+      setCurrentPassword("")
+      setNewPassword("")
+      setConfirmPassword("")
+      toast.success("Password changed successfully.")
+    } catch (e: any) {
+      toast.error(e.message || "Could not change password")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const sendResetEmail = async () => {
+    if (!me?.email) return
+    setResetBusy(true)
+    try {
+      if (!isSupabaseConfigured) {
+        throw new Error("Password recovery email is available after Supabase Auth is configured.")
+      }
+      const { error } = await supabase.auth.resetPasswordForEmail(me.email, {
+        redirectTo: `${window.location.origin}/?password-reset=1`,
+      })
+      if (error) throw new Error(error.message)
+      toast.success("Password reset email sent. Check your inbox and spam folder.")
+    } catch (e: any) {
+      toast.error(e.message || "Could not send password reset email")
+    } finally {
+      setResetBusy(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Shield className="size-4" /> Password & security</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-1.5">
+          <Label>Current password</Label>
+          <Input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} autoComplete="current-password" placeholder="Enter current password" />
+        </div>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div className="space-y-1.5"><Label>New password</Label><Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} autoComplete="new-password" placeholder="At least 8 characters" /></div>
+          <div className="space-y-1.5"><Label>Confirm new password</Label><Input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} autoComplete="new-password" placeholder="Repeat new password" /></div>
+        </div>
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+          <Button onClick={changePassword} disabled={busy || !currentPassword || !newPassword || !confirmPassword}>{busy ? "Changing…" : "Change password"}</Button>
+          <Button variant="outline" onClick={sendResetEmail} disabled={resetBusy}>{resetBusy ? "Sending…" : "Forgot password? Email me a reset link"}</Button>
+        </div>
+        <p className="text-[11px] text-muted-foreground">Changing your password verifies the current password first. Forgot-password recovery is handled by Supabase Auth and sends a verification link to your account email.</p>
+      </CardContent>
+    </Card>
+  )
+}
+
 function DangerZoneCard() {
   const { me, logout } = useAuth()
   const { navigate } = useRouter()
@@ -241,7 +326,7 @@ function DangerZoneCard() {
   const [password, setPassword] = useState("")
   const [confirmText, setConfirmText] = useState("")
   const [busy, setBusy] = useState(false)
-  const hasPassword = Boolean(me?.email) // OAuth-only users skip password confirmation
+  const hasPassword = Boolean(me?.email) // Local email/password accounts require confirmation.
 
   const del = useMutation({
     mutationFn: async () => {
@@ -262,6 +347,8 @@ function DangerZoneCard() {
       }
     },
   })
+
+  if (me?.role === "admin") return null
 
   const canSubmit = confirmText === "DELETE" && (!hasPassword || password.length > 0)
 

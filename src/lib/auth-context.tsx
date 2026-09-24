@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useContext, useEffect, useState, useCallback, useMemo, ReactNode } from "react"
+import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef, ReactNode } from "react"
 import { createBrowserClient, isSupabaseConfigured } from "@/lib/supabase"
 import { api, setToken, getToken, ApiError } from "@/lib/api-client"
 
@@ -52,6 +52,7 @@ const Ctx = createContext<AuthState>(null as any)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<Me | null>(null)
   const [loading, setLoading] = useState(true)
+  const authActionInFlight = useRef(false)
   // Memoize the Supabase client so it is created ONCE per provider mount.
   // Previously this was called in the render body, creating a new client on
   // every render → fetchMe callback was recreated every render → the auth
@@ -79,12 +80,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             try {
               const { data: userData } = await supabase.auth.getUser()
               if (userData?.user) {
-                await api.post("/auth/sync", {
+                const synced = await api.post<Me>("/auth/sync", {
                   email: userData.user.email,
                   supabaseId: userData.user.id,
                 })
-                const data = await api.get<Me>("/auth/me")
-                setMe(data)
+                setMe(synced)
                 return
               }
             } catch {
@@ -130,7 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Listen for auth state changes
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
-        if (session?.access_token) {
+        if (session?.access_token && !authActionInFlight.current) {
           setToken(session.access_token)
           await fetchMe()
         }
@@ -154,14 +154,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Supabase configured — no code changes needed to switch.
   const login = useCallback(async (email: string, password: string) => {
     if (isSupabaseConfigured) {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-      if (error || !data.session || !data.user) {
-        throw new Error(error?.message || "Invalid email or password")
+      authActionInFlight.current = true
+      try {
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+        if (error || !data.session || !data.user) {
+          throw new Error(error?.message || "Invalid email or password")
+        }
+        setToken(data.session.access_token)
+        const synced = await api.post<Me>("/auth/sync", { email: data.user.email, supabaseId: data.user.id })
+        setMe(synced)
+        setLoading(false)
+        return
+      } finally {
+        authActionInFlight.current = false
       }
-      setToken(data.session.access_token)
-      await api.post("/auth/sync", { email: data.user.email, supabaseId: data.user.id })
-      await fetchMe()
-      return
     }
 
     // ── Sankalp local-login fallback ──
@@ -184,15 +190,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // app work with OR without Supabase configured.
   const signup = useCallback(async (email: string, password: string) => {
     if (isSupabaseConfigured) {
-      const { data, error } = await supabase.auth.signUp({ email, password })
-      if (error) throw new Error(error.message)
-      if (!data.session || !data.user) {
-        throw new Error("Account created. Check your email to confirm your address, then log in.")
+      authActionInFlight.current = true
+      try {
+        const { data, error } = await supabase.auth.signUp({ email, password })
+        if (error) throw new Error(error.message)
+        if (!data.session || !data.user) {
+          throw new Error("Account created. Check your email to confirm your address, then log in.")
+        }
+        setToken(data.session.access_token)
+        const synced = await api.post<Me>("/auth/sync", { email: data.user.email, supabaseId: data.user.id })
+        setMe(synced)
+        setLoading(false)
+        return
+      } finally {
+        authActionInFlight.current = false
       }
-      setToken(data.session.access_token)
-      await api.post("/auth/sync", { email: data.user.email, supabaseId: data.user.id })
-      await fetchMe()
-      return
     }
 
     // ── Sankalp local-signup fallback ──

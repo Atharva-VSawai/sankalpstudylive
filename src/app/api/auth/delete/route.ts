@@ -11,6 +11,9 @@ import { verifyPassword } from "@/lib/auth"
 export async function POST(req: NextRequest) {
   const ctx = await getAuth(req)
   if (!ctx) return unauthorized()
+  if (ctx.role === "admin") {
+    return badRequest("Admin accounts cannot be deleted from Settings.", "ADMIN_PROTECTED")
+  }
   const body = await req.json().catch(() => ({}))
 
   // Require explicit confirmation string

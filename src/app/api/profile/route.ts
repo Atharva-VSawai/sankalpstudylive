@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
       joinedAt: m.joinedAt,
       community: m.community,
     })),
-    membershipCount: memberships.length,
+    membershipCount: memberships.filter((m) => m.community.slug !== "general").length,
     maxMemberships: 2,
   })
 }

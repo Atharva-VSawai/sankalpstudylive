@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server"
 import { db } from "@/lib/db"
 import { ok } from "@/lib/api"
+import { communityOrderIndex } from "@/lib/community-order"
 
 // GET /api/communities — list all communities
 export async function GET(req: NextRequest) {
@@ -20,7 +21,7 @@ export async function GET(req: NextRequest) {
 
   const communities = await db.community.findMany({
     where,
-    orderBy: [{ isFeatured: "desc" }, { memberCount: "desc" }],
+    orderBy: [{ memberCount: "desc" }],
     select: {
       id: true,
       slug: true,
@@ -41,7 +42,7 @@ export async function GET(req: NextRequest) {
       ...c,
       tags: safeParse(c.tags),
       liveRooms: c._count.rooms,
-    })),
+    })).sort((a, b) => communityOrderIndex(a.slug) - communityOrderIndex(b.slug)),
   })
 }
 

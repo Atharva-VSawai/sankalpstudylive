@@ -5,6 +5,7 @@ import { isPaidPlanActive } from "@/lib/pricing"
 import { rateLimit } from "@/lib/ratelimit"
 import { AccessToken, VideoGrant } from "livekit-server-sdk"
 import { canJoinLiveRoom, beginLiveRoomSession, entitlementToResponse } from "@/lib/entitlement"
+import { isGeneralStudyRoom, isUnassignedNonGeneralRoom } from "@/lib/room-access"
 
 // POST /api/rooms/[id]/token
 // Issues a REAL LiveKit access token using livekit-server-sdk.
@@ -31,15 +32,33 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { id } = await params
   const room = await db.room.findUnique({
     where: { id },
-    include: { owner: { include: { profile: true } } },
+    include: { owner: { include: { profile: true } }, community: true },
   })
   if (!room) return notFound("Room not found")
+  if (!room.isLive) return badRequest("This room has ended.", "ROOM_ENDED")
 
   const profile = await db.profile.findUnique({
     where: { userId: ctx.userId },
     include: { user: { include: { subscription: true } } },
   })
   if (!profile) return badRequest("Profile missing")
+  const generalStudyRoom = isGeneralStudyRoom(room)
+  if (isUnassignedNonGeneralRoom(room)) {
+    return forbidden("This room is not assigned to a community.", "ROOM_ACCESS_NOT_CONFIGURED")
+  }
+  if (!profile.onboardingComplete && room.communityId !== null && !generalStudyRoom) {
+    return forbidden("Complete onboarding before joining community rooms.", "ONBOARDING_REQUIRED")
+  }
+
+  // Community rooms are gated by the persisted CommunityMember relation. The
+  // browser cannot override this with communityId, isMember, or local state.
+  if (room.communityId !== null && !generalStudyRoom) {
+    const membership = await db.communityMember.findUnique({
+      where: { communityId_userId: { communityId: room.communityId, userId: ctx.userId } },
+      select: { id: true },
+    })
+    if (!membership) return forbidden("Join this community before entering its focus room.", "NOT_MEMBER")
+  }
 
   // ── Server-authoritative free allowance check ──
   const { allowed, entitlement } = await canJoinLiveRoom(ctx.userId)
@@ -84,7 +103,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       data: {
         userId: ctx.userId,
         roomId: room.id,
-        communityId: room.communityId,
+        communityId: generalStudyRoom ? null : room.communityId,
         mode: "pomodoro",
         startedAt: new Date(),
       },

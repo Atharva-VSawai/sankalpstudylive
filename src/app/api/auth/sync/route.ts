@@ -64,8 +64,12 @@ export async function POST(req: NextRequest) {
   } else {
     // Link pre-existing email/password rows to the verified Supabase identity
     // so subsequent JWT lookups are stable even if the email changes later.
-    if (user.googleSub !== supabaseId) {
-      await db.user.update({ where: { id: user.id }, data: { googleSub: supabaseId } })
+    const emailOwner = await db.user.findUnique({ where: { email }, select: { id: true } })
+    if (emailOwner && emailOwner.id !== user.id) {
+      return badRequest("This email is already linked to another account.", "EMAIL_TAKEN")
+    }
+    if (user.googleSub !== supabaseId || user.email !== email) {
+      await db.user.update({ where: { id: user.id }, data: { googleSub: supabaseId, email } })
     }
     if (!user.profile) {
       // User exists but no profile — create one

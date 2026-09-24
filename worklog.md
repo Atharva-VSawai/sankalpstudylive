@@ -388,3 +388,55 @@ Work Log:
 - Made the verified Supabase token identity authoritative instead of trusting browser-supplied email or Supabase IDs.
 - When Supabase is configured, email login/signup now stays on Supabase Auth and surfaces its real error; it no longer falls through to the local Postgres login route and masks the root cause.
 - `bun run lint` passes. After stopping the existing localhost process that held Prisma's Windows query engine file, `bun run build` passes; Next reports only the pre-existing workspace-root and metadataBase warnings.
+
+---
+Task ID: PRODUCTION-FOCUS-014
+Agent: Codex
+Task: Focused performance, ordering, onboarding, room-access, and NEET PG improvements.
+
+Work Log:
+- Login/signup now reuse the full `/api/auth/sync` response instead of immediately fetching `/api/auth/me` again. Auth-state listeners are suppressed during an explicit auth action to prevent duplicate profile requests.
+- Exit Room disconnects LiveKit and navigates immediately; trusted session finalization, presence cleanup, and timelapse work continue in the background. Cleanup is guarded against duplicate unmount/disconnect requests.
+- Added an owner/moderator End room control that fires the existing authorized server close route without delaying navigation; ended rooms are rejected by the LiveKit token endpoint.
+- Added the centralized community order: General Study, GATE, JEE, NEET, UPSC, NEET PG, CAT, SSC, Banking, MPSC, Placements, DSA.
+- Updated community API ordering and UI exam metadata to use the same order.
+- Added idempotent NEET PG community/default-room seeding. Existing General Study default rooms are normalized to platform-wide (`communityId = null`) by the seed without deleting or duplicating data.
+- Added server-side onboarding checks for community joins, room creation, community-room presence, and LiveKit token issuance.
+- Added server-side community membership checks for community-specific room creation, presence, and LiveKit tokens. General Study remains the special platform-wide room and still uses the global entitlement check.
+- Preserved the existing maximum-two membership transaction and added row-locked onboarding auto-membership creation.
+- Read-only local inspection found 11 existing communities/default rooms and no NEET PG record yet; production/local seed execution is still required to materialize the new NEET PG records.
+- Validation: `bun run lint` passes; `bun run build` passes with only existing Next warnings; local browser smoke test rendered the landing page; unauthenticated join/token API checks returned `401`.
+
+---
+Task ID: BRANDING-013
+Agent: Codex
+Task: Add the supplied Sankalp logo with light/dark theme variants.
+
+Work Log:
+- Added clean transparent light and dark full-wordmark PNG assets under `public/branding/`.
+- Replaced the old sheet-derived mark asset with a clean transparent logo mark.
+- Updated the centralized `BrandLogo` component to select the light or dark wordmark from `next-themes` while preserving existing `full`, `compact`, and `icon` call sites.
+- Verified the local landing page visually in both light and dark themes; the correct logo variant appears in the header.
+- `bun run lint` passes. The production build was attempted but Prisma's Windows query-engine file was locked by the running local Next.js process.
+
+---
+Task ID: ROOM-PRESENCE-015
+Agent: Codex
+Task: Fix live waiting-room participant counts.
+
+Work Log:
+- Room entry now posts the authenticated presence join after the LiveKit connection succeeds, keeping the server-side `participantCount` synchronized with actual room presence.
+- The Live Rooms list refetches every 10 seconds so waiting-room counts update without a manual refresh.
+
+---
+Task ID: ACCOUNT-SECURITY-016
+Agent: Codex
+Task: Admin identity migration and account security settings.
+
+Work Log:
+- Migrated the Supabase admin identity from `admin@sankalp.in` to `support@sankalpstudylive.in` without changing its password; synchronized the PostgreSQL user email as well.
+- Updated the idempotent seed to use the support address and migrate the legacy local admin address while preserving its password hash.
+- Added Settings password change with current-password verification for Supabase Auth and local-auth fallback.
+- Added Supabase recovery-email delivery for forgotten passwords.
+- Hid account deletion from admin Settings and added a server-side `ADMIN_PROTECTED` guard so admin accounts cannot self-delete through the API.
+- Validation: `bun run lint` and `bun run build` pass; build retains only existing workspace-root and metadataBase warnings.

@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server"
 import { db } from "@/lib/db"
-import { ok, notFound, unauthorized, getAuth } from "@/lib/api"
+import { ok, notFound, unauthorized, forbidden, getAuth } from "@/lib/api"
 import { joinRoom, leaveRoom, listParticipants, heartbeat, reapStale, updateParticipant } from "@/lib/presence"
+import { isGeneralStudyRoom, isUnassignedNonGeneralRoom } from "@/lib/room-access"
 
 // GET /api/rooms/[id]/presence
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -15,7 +16,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const ctx = await getAuth(req)
   if (!ctx) return unauthorized()
   const { id } = await params
-  const room = await db.room.findUnique({ where: { id } })
+  const room = await db.room.findUnique({ where: { id }, include: { community: true } })
   if (!room) return notFound("Room not found")
 
   const profile = await db.profile.findUnique({ where: { userId: ctx.userId } })
@@ -42,6 +43,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     heartbeat(id, ctx.userId)
     reapStale(id)
     return ok({ ok: true })
+  }
+
+  const generalStudyRoom = isGeneralStudyRoom(room)
+  if (isUnassignedNonGeneralRoom(room)) {
+    return forbidden("This room is not assigned to a community.", "ROOM_ACCESS_NOT_CONFIGURED")
+  }
+  if (!profile.onboardingComplete && room.communityId !== null && !generalStudyRoom) {
+    return forbidden("Complete onboarding before joining community rooms.", "ONBOARDING_REQUIRED")
+  }
+  if (room.communityId !== null && !generalStudyRoom) {
+    const membership = await db.communityMember.findUnique({
+      where: { communityId_userId: { communityId: room.communityId, userId: ctx.userId } },
+      select: { id: true },
+    })
+    if (!membership) return forbidden("Join this community before entering its focus room.", "NOT_MEMBER")
   }
 
   // ── SILENT STUDY ROOM: micOn is always false ──
