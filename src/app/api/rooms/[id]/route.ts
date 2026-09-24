@@ -1,7 +1,10 @@
 import { NextRequest } from "next/server"
 import { db } from "@/lib/db"
 import { ok, notFound, unauthorized, forbidden, badRequest, getAuth, isModerator } from "@/lib/api"
-import { listParticipants, getTimer } from "@/lib/presence"
+import { clearRoom, listParticipants, getTimer } from "@/lib/presence"
+import { closeSession } from "@/app/api/study/sessions/route"
+import { closeActiveLiveRoomSession } from "@/lib/entitlement"
+import { closeLiveKitRoom } from "@/lib/livekit-admin"
 
 // GET /api/rooms/[id]
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -74,11 +77,44 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   if (!room) return notFound("Room not found")
   if (room.ownerId !== ctx.userId && !isModerator(ctx)) return forbidden()
 
+  const participants = listParticipants(id)
+  const participantIds = Array.from(new Set([ctx.userId, ...participants.map((p) => p.userId)]))
+  const endedAt = new Date()
+
   await db.room.update({
     where: { id },
-    data: { isLive: false, isListed: false, endedAt: new Date() },
+    data: { isLive: false, isListed: false, endedAt, participantCount: 0 },
   })
-  return ok({ closed: true })
+  clearRoom(id)
+  await db.roomMember.updateMany({
+    where: { roomId: id, leftAt: null },
+    data: { leftAt: endedAt, lastSeenAt: endedAt },
+  })
+
+  // Close every active server-side study session associated with the room.
+  // This prevents an owner ending a room from leaving other participants'
+  // timers/allowances running until their next heartbeat.
+  await Promise.all(participantIds.map(async (userId) => {
+    const [user, session] = await Promise.all([
+      db.user.findUnique({ where: { id: userId }, select: { timezone: true } }),
+      db.studySession.findFirst({ where: { userId, roomId: id, endedAt: null }, orderBy: { startedAt: "desc" } }),
+    ])
+    if (session) await closeSession(session.id, user?.timezone ?? "Asia/Kolkata", endedAt)
+    await closeActiveLiveRoomSession(userId)
+  }))
+
+  // LiveKit is the media authority. Delete the corresponding LiveKit room so
+  // all connected clients receive a server disconnect, even if the owner tab
+  // disappears before its client-side cleanup request completes.
+  try {
+    await closeLiveKitRoom(room.livekitRoom)
+  } catch (error) {
+    // Database/presence cleanup remains successful if LiveKit is temporarily
+    // unavailable; the next room cleanup/reaper can retry the media teardown.
+    console.error("[livekit] failed to close room", room.livekitRoom, error)
+  }
+
+  return ok({ closed: true, participantCount: 0 })
 }
 
 function safeParse(s: string) {

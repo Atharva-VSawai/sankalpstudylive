@@ -37,6 +37,19 @@ GATE, JEE, NEET, UPSC, CAT, SSC, Banking, MPSC, Placements, DSA, General Study
 - Load testing not performed — performance targets are architectural, not verified.
 
 ---
+Task ID: STUDY-TRACKING-AUDIT-025
+Agent: Codex
+Task: Audit and fix server-authoritative live-room and Pomodoro study tracking.
+
+Work Log:
+- Audited the persisted records for `atharvasawai38`: overlapping solo Pomodoro starts occurred within milliseconds, and room sessions of 82–93 minutes were created before/without matching LiveKit presence. The allowance row recorded only 827 seconds, proving the StudySession rows were not using the same presence boundary.
+- Removed StudySession creation from the LiveKit token endpoint. A session now starts only after the connected client registers authenticated room presence.
+- Added server heartbeat validation, persisted RoomMember heartbeat timestamps, timeout finalization at the last observed heartbeat plus grace, and room-scoped active-session checks.
+- Added a unique active-session key and atomic close claims to prevent concurrent starts, refreshes, leave/unload races, and duplicate XP/streak/daily-goal awards.
+- Applied the `StudySession.activeKey` column and unique index to the configured Supabase database.
+- Validation: `bun run lint` passes; Prisma client generation and schema-column verification pass; `git diff --check` passes. `bunx tsc --noEmit` still reports unrelated pre-existing errors in admin/payment, room timer/presence typing, and UI files.
+
+---
 Task ID: DOC-A
 Agent: general-purpose (docs)
 Task: Wrote 5 core architecture docs (architecture.md, database.md, api.md, authentication.md, security.md) describing the production target architecture (FastAPI + PostgreSQL/Supabase + Redis + LiveKit) and how the runnable sandbox (Next.js API routes + Prisma/SQLite + in-memory presence + simulated LiveKit) maps 1:1 to it.
@@ -502,3 +515,67 @@ Work Log:
 - Added a server-only Supabase Auth admin deletion helper using `SUPABASE_SERVICE_ROLE_KEY`.
 - Self-delete and admin-delete now remove the linked Supabase Auth identity before deleting the local Prisma user row.
 - If Supabase deletion fails, local data is retained and the API returns a retryable error instead of creating a partial deletion.
+
+---
+Task ID: ANDROID-001
+Agent: Codex
+Task: Build and validate the Android client inside android-app.
+
+Work Log:
+- Wired the Expo Router Android client to the existing Sankalp REST contract, Supabase session fallback, community rules, server-authoritative study/entitlement flows, and real LiveKit token/room flow.
+- Replaced the unavailable LiveKit React Native package reference with the official @livekit/react-native package and registered native WebRTC globals.
+- Added profile-picture selection in Settings and profile rendering through the existing PATCH/GET /api/profile avatarUrl field, preserving website-shared profile data.
+- Fixed Android TypeScript path aliases, Expo type configuration, React Native imports, and room rendering type errors.
+- Validation: npx tsc --noEmit passes. Expo lint could not complete because the CLI attempted to install its generated ESLint configuration in the environment.
+
+---
+Task ID: TIMER-ROOM-023
+Agent: Codex
+Task: Repair solo Pomodoro timing and reduce study-room join latency.
+
+Work Log:
+- Replaced the solo Pomodoro decrement loop with an absolute-deadline timer that stays accurate through background-tab throttling and prevents duplicate phase transitions.
+- Added start-in-flight protection and pause deadline handling so rapid clicks cannot create conflicting sessions or lose elapsed time.
+- Started the LiveKit token/connect flow as soon as auth is ready, in parallel with room metadata loading.
+- Attached LiveKit participant listeners before awaiting noncritical presence bookkeeping, so existing participants can render immediately after connection.
+- Applied persisted room Pomodoro settings when the settings query resolves and only mark the timer as running after a study session starts successfully.
+- Validation: `bun run lint` passes; `git diff --check` passes.
+- Follow-up: solo timer now starts its local countdown immediately on click while the server session request runs in the background; Stop waits for that request before finalizing, and rolls back cleanly if the server rejects it.
+
+---
+Task ID: LIVEKIT-BANDWIDTH-024
+Agent: Codex
+Task: Cap Sankalp StudyLive web video bandwidth by server-derived entitlement.
+
+Work Log:
+
+- Audited the single web LiveKit room path, token endpoint, quality policy, participant grid, `Track.attach()` usage, Adaptive Stream, Dynacast, simulcast, and off-screen handling.
+- Replaced the previous 720p capture plus 720p/360p/180p simulcast ladder with one custom encoding: free 426×240 at 15 fps and 250 kbps; paid 640×400 at 15 fps and 450 kbps.
+- Kept Adaptive Stream and Dynacast enabled, disabled simulcast because Sankalp has no high-resolution spotlight, and made off-screen camera tiles call `setSubscribed(false)`.
+- Added exact Android-equivalent numeric settings to `docs/livekit.md`; no Android backend, auth, database, or token contract was changed.
+- Runtime LiveKit Cloud verification was not possible in this workspace; build/lint validation is required before claiming runtime caps.
+- Runtime verification completed locally against the configured LiveKit project: free seeded account connected and reported `tier: free · remote≤LOW · local=426x240@15`; its attached HTML video measured 426×240 with `readyState=4`. Paid seeded account connected and reported `tier: paid · remote≤MEDIUM · local=640x400@15`; its attached HTML video measured 640×400 with `readyState=4`.
+- A two-participant downstream bitrate test was not completed because this browser session exposes only one independent participant and does not expose a usable WebRTC stats surface; no bitrate value is claimed as measured.
+
+---
+Task ID: ROOM-EXIT-025
+Agent: Codex
+Task: Make Back, Leave, and End room exit LiveKit and server presence quickly and reliably.
+
+Work Log:
+
+- Fixed the per-room cleanup guard so React Strict Mode's development-only effect cleanup cannot permanently disable the real Back/Leave/End actions.
+- Preserved immediate LiveKit disconnect, heartbeat cancellation, server presence leave, and server-authoritative study-session close; Back already routes through the same shared leave handler.
+- Validation: `bun run lint` and `git diff --check` pass.
+
+---
+Task ID: ROOM-EXIT-PROD-026
+Agent: Codex
+Task: Production-harden room teardown across Sankalp and LiveKit.
+
+Work Log:
+
+- Added server-only LiveKit Room Service teardown when a room is ended; this disconnects all media participants, not only the owner browser.
+- End-room API now clears presence, zeroes participant count, marks room members left, and closes active study sessions/allowances with server timestamps.
+- Added authenticated `keepalive` presence-leave handling for tab close/unload.
+- Validation: ESLint passes; modified exit files produce no TypeScript diagnostics; `git diff --check` passes.

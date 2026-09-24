@@ -31,7 +31,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   // by beginLiveRoomSession. closeActiveLiveRoomSession is a no-op in that case
   // (it only closes the session whose activeSessionId matches, which we verify
   // by checking the row state).
-  if (session.roomId) {
+  const allowance = await db.freeRoomAllowance.findUnique({ where: { userId: ctx.userId }, select: { activeSessionId: true } })
+  if (session.roomId && allowance?.activeSessionId === session.id) {
     await closeActiveLiveRoomSession(ctx.userId)
   }
 

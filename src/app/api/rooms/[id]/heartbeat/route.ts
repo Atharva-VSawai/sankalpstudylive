@@ -2,6 +2,7 @@ import { NextRequest } from "next/server"
 import { db } from "@/lib/db"
 import { ok, unauthorized, notFound, forbidden, getAuth } from "@/lib/api"
 import { heartbeatLiveRoomSession, getEntitlement, entitlementToResponse, closeActiveLiveRoomSession } from "@/lib/entitlement"
+import { closeSession } from "@/app/api/study/sessions/route"
 
 // POST /api/rooms/[id]/heartbeat
 // Called by the client every ~20s while connected to a live room. The server:
@@ -25,8 +26,25 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const room = await db.room.findUnique({ where: { id }, select: { id: true } })
   if (!room) return notFound("Room not found")
 
-  // Update the heartbeat timestamp.
-  await heartbeatLiveRoomSession(ctx.userId)
+  const allowance = await db.freeRoomAllowance.findUnique({ where: { userId: ctx.userId } })
+  if (!allowance?.activeSessionId || allowance.activeRoomId !== id) {
+    return forbidden("No active presence in this room.", "NOT_IN_ROOM")
+  }
+
+  // Finalize at the last observed server heartbeat after a network/browser
+  // loss. Do not let the later request time inflate the study session.
+  const timeoutAt = allowance.lastHeartbeatAt
+    ? new Date(allowance.lastHeartbeatAt.getTime() + 10_000)
+    : null
+  if (timeoutAt && timeoutAt.getTime() < Date.now() - 10_000) {
+    const user = await db.user.findUnique({ where: { id: ctx.userId }, select: { timezone: true } })
+    await closeSession(allowance.activeSessionId, user?.timezone ?? "Asia/Kolkata", timeoutAt)
+    await closeActiveLiveRoomSession(ctx.userId, timeoutAt)
+    return ok({ exhausted: false, timedOut: true, ...entitlementToResponse(await getEntitlement(ctx.userId)) })
+  }
+
+  await heartbeatLiveRoomSession(ctx.userId, id)
+  await db.roomMember.updateMany({ where: { roomId: id, userId: ctx.userId, leftAt: null }, data: { lastSeenAt: new Date() } })
 
   // Recompute entitlement.
   const ent = await getEntitlement(ctx.userId)

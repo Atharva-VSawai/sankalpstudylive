@@ -4,7 +4,7 @@ import { ok, notFound, unauthorized, forbidden, badRequest, getAuth } from "@/li
 import { isPaidPlanActive } from "@/lib/pricing"
 import { rateLimit } from "@/lib/ratelimit"
 import { AccessToken, VideoGrant } from "livekit-server-sdk"
-import { canJoinLiveRoom, beginLiveRoomSession, entitlementToResponse } from "@/lib/entitlement"
+import { canJoinLiveRoom, entitlementToResponse } from "@/lib/entitlement"
 import { isGeneralStudyRoom, isUnassignedNonGeneralRoom } from "@/lib/room-access"
 
 // POST /api/rooms/[id]/token
@@ -92,31 +92,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     update: { leftAt: null, lastSeenAt: new Date() },
   })
 
-  // ── Start the server-side study session + register it as the active live-room session ──
-  // The StudySession row is created here (not separately by the client) so the
-  // token endpoint is the single entry point for joining a room. This avoids a
-  // race where the client creates a session but the token request fails (or
-  // vice versa). beginLiveRoomSession also closes any prior active session.
-  let studySession: { id: string } | null = null
-  try {
-    studySession = await db.studySession.create({
-      data: {
-        userId: ctx.userId,
-        roomId: room.id,
-        communityId: generalStudyRoom ? null : room.communityId,
-        mode: "pomodoro",
-        startedAt: new Date(),
-      },
-    })
-  } catch (e) {
-    console.error("[livekit] failed to create study session:", e)
-    return badRequest("Failed to start study session.", "SESSION_ERROR")
-  }
-
-  // Register the session as the user's active live-room session. This also
-  // closes any prior active session (multi-tab protection: only one active
-  // session per user; the previous tab's session is accrued and ended).
-  const updatedEnt = await beginLiveRoomSession(ctx.userId, studySession.id, room.id)
+  // Token issuance authorizes LiveKit only. Study time starts after the client
+  // connects and calls the presence endpoint.
 
   // ── Generate REAL LiveKit access token ──
   // Identity: Sankalp user ID (opaque, stable)
@@ -157,7 +134,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     serverUrl: livekitUrl,
     roomName: room.livekitRoom,
     identity: ctx.userId,
-    entitlement: entitlementToResponse(updatedEnt),
-    hasPaidPlan: updatedEnt.isPaid,
+    entitlement: entitlementToResponse(entitlement),
+    hasPaidPlan: entitlement.isPaid,
   })
 }

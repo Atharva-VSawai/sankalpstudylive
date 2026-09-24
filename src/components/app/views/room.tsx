@@ -127,9 +127,23 @@ export function RoomView({ id }: { id: string }) {
   const [pausedRemaining, setPausedRemaining] = useState<number | null>(null)
   const [now, setNow] = useState(Date.now())
 
+  // The settings query resolves after the first render. Apply the persisted
+  // config once it arrives so the timer never silently stays on the fallback
+  // 25/5 preset.
+  useEffect(() => {
+    if (pomoData?.config && pomoState === "ready") setConfig(pomoData.config)
+  }, [pomoData, pomoState])
+
   // ── Connect to LiveKit ──
   useEffect(() => {
-    if (!me || !room) return
+    // The room metadata query and the LiveKit token request are independent.
+    // Start the media connection as soon as auth is ready instead of waiting
+    // for the decorative room-details request to finish.
+    if (!me) return
+    // React Strict Mode intentionally runs an effect cleanup/setup cycle in
+    // development. Reset the per-room guard on the real setup so that the
+    // later Back/Leave/End action cannot be mistaken for that probe cleanup.
+    cleanupStartedRef.current = false
     let cancelled = false
 
     async function connect() {
@@ -149,12 +163,6 @@ export function RoomView({ id }: { id: string }) {
         }
         const tokenRes = await api.post<TokenRes>("/rooms/" + id + "/token", {})
 
-        // The token endpoint creates the server-side StudySession and registers
-        // it as the active live-room session. We use that sessionId for the
-        // stop-on-leave flow. No separate /study/sessions call is needed.
-        sessionIdRef.current = tokenRes.entitlement?.activeSessionId ?? null
-        timelapseStudySessionIdRef.current = sessionIdRef.current
-
         // Seed the entitlement + local countdown from the SERVER value.
         setEntitlement(tokenRes.entitlement)
         if (!tokenRes.hasPaidPlan) {
@@ -168,7 +176,8 @@ export function RoomView({ id }: { id: string }) {
         const policy = tokenRes.entitlement.videoQuality
 
         // 2. Create LiveKit Room + connect.
-        //    adaptiveStream + dynacast + simulcast + 720p local capture are all
+        //    adaptiveStream + dynacast + the server-authoritative capped
+        //    capture/encoding policy are configured here.
         //    configured from the server-authoritative policy. This is the ONLY
         //    place the Room is constructed — never re-create it on re-render.
         const lkRoom = new Room(buildRoomOptions(policy))
@@ -181,11 +190,6 @@ export function RoomView({ id }: { id: string }) {
         if (cancelled) { lkRoom.disconnect(); return }
 
         setConnectionState(lkRoom.state)
-
-        // Keep the server-side waiting-room count in sync with the actual
-        // LiveKit connection. Token issuance creates the durable RoomMember,
-        // but presence is what drives the count shown on room cards.
-        await api.post("/rooms/" + id + "/presence", { camOn: false })
 
         // 4. Listen for participant events
         const updateParticipants = () => {
@@ -244,6 +248,14 @@ export function RoomView({ id }: { id: string }) {
         // Apply the quality cap to all remote tracks that already existed
         // before our TrackSubscribed listener was registered (race safety).
         applyPolicyToAllRemoteTracks(lkRoom, policy)
+
+        // Keep the server-side waiting-room count in sync with the actual
+        // LiveKit connection. This is bookkeeping only: it must not delay
+        // participant listeners or the first video frame.
+        const presenceRes = await api.post<{ sessionId: string; entitlement: Ent }>("/rooms/" + id + "/presence", { camOn: false })
+        sessionIdRef.current = presenceRes.sessionId
+        timelapseStudySessionIdRef.current = presenceRes.sessionId
+        setEntitlement(presenceRes.entitlement)
 
         // ── Periodic quality-cap re-assertion (every 3s) ──
         // Defense-in-depth against Adaptive Stream silently overriding the cap.
@@ -332,14 +344,25 @@ export function RoomView({ id }: { id: string }) {
       }
       api.post("/rooms/" + id + "/presence", { action: "leave" }).catch(() => {})
     }
-  }, [me, room?.id])
+  }, [me, id])
 
   // ── Cleanup on unmount ──
   useEffect(() => {
     const onUnload = () => {
       if (lkRoomRef.current) lkRoomRef.current.disconnect()
-      if (sessionIdRef.current) navigator.sendBeacon("/api/study/sessions/" + sessionIdRef.current + "/stop")
-      api.post("/rooms/" + id + "/presence", { action: "leave" }).catch(() => {})
+      // A normal fetch can be cancelled during tab close. Keepalive preserves
+      // the authenticated server leave request long enough to remove presence
+      // and close the active study session.
+      const token = getToken()
+      fetch("/api/rooms/" + id + "/presence", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ action: "leave" }),
+        keepalive: true,
+      }).catch(() => {})
     }
     window.addEventListener("beforeunload", onUnload)
     return () => window.removeEventListener("beforeunload", onUnload)
@@ -528,6 +551,8 @@ export function RoomView({ id }: { id: string }) {
     if (heartbeatRef.current) clearInterval(heartbeatRef.current)
     if (qualityReassertRef.current) clearInterval(qualityReassertRef.current)
     // Keep server cleanup authoritative, but do not make the user wait for it.
+    // The presence leave endpoint also closes the server-authoritative active
+    // study session and removes this participant from the room count.
     if (sessionId) api.post("/study/sessions/" + sessionId + "/stop").catch(() => {})
     api.post("/rooms/" + id + "/presence", { action: "leave" }).catch(() => {})
     qc.invalidateQueries({ queryKey: ["rooms"] })
@@ -601,15 +626,18 @@ export function RoomView({ id }: { id: string }) {
   const ss = String(Math.floor((remainingMs % 60000) / 1000)).padStart(2, "0")
 
   const startFocus = async () => {
-    setPomoState("focusing")
-    setEndsAt(Date.now() + config.focusMin * 60_000)
-    setPausedRemaining(null)
     if (!sessionIdRef.current) {
       try {
         const res = await api.post<{ sessionId: string }>("/study/sessions", { roomId: id, communityId: room?.community?.id, mode: "pomodoro" })
         sessionIdRef.current = res.sessionId
-      } catch (e: any) { toast.error(e.message || "Failed to start study session") }
+      } catch (e: any) {
+        toast.error(e.message || "Failed to start study session")
+        return
+      }
     }
+    setPomoState("focusing")
+    setEndsAt(Date.now() + config.focusMin * 60_000)
+    setPausedRemaining(null)
   }
   const pause = () => { if (endsAt) setPausedRemaining(Math.max(0, endsAt - Date.now())); setPomoState("paused"); setEndsAt(null) }
   const resume = () => { if (pausedRemaining && pausedRemaining > 0) { setEndsAt(Date.now() + pausedRemaining); setPomoState("focusing"); setPausedRemaining(null) } else startFocus() }
@@ -813,7 +841,7 @@ export function RoomView({ id }: { id: string }) {
           visibleCount={visibleCount}
           tier={entitlement.videoQuality.tier}
           remoteMax={entitlement.videoQuality.remoteGridMaxQuality}
-          localPreset={entitlement.videoQuality.localCapturePreset}
+          localPreset={`${entitlement.videoQuality.captureWidthPx}x${entitlement.videoQuality.captureHeightPx}@${entitlement.videoQuality.maxFramerate}`}
         />
       )}
 
@@ -1176,7 +1204,11 @@ const VIDEO_QUALITY_FALLBACK: ClientVideoPolicy = {
   tier: "free",
   remoteGridMaxQuality: "LOW",
   remoteGridMaxHeightPx: 240,
-  localCapturePreset: "h720",
+  captureWidthPx: 426,
+  captureHeightPx: 240,
+  maxBitrateBps: 250_000,
+  maxFramerate: 15,
+  remoteGridMaxWidthPx: 426,
 }
 
 // ── VisibleTile: wraps ParticipantTile with an IntersectionObserver. ──

@@ -77,6 +77,15 @@ export function leaveRoom(roomId: string, userId: string) {
   emit(roomId, { type: "presence", participants: listParticipants(roomId) })
 }
 
+// Remove every participant from an ended room. Production replaces this
+// in-memory store with the equivalent Redis room-key deletion.
+export function clearRoom(roomId: string) {
+  const r = rooms.get(roomId)
+  if (!r) return
+  r.participants.clear()
+  emit(roomId, { type: "presence", participants: [] })
+}
+
 export function updateParticipant(roomId: string, userId: string, patch: Partial<PresenceParticipant>) {
   const r = getRoom(roomId)
   const p = r.participants.get(userId)

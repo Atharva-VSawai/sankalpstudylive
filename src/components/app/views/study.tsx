@@ -32,10 +32,16 @@ export function StudyView() {
   const [sessionStartedAt, setSessionStartedAt] = useState<number | null>(null)
   const [accrued, setAccrued] = useState(0) // minutes accrued this session (display)
   const sessionIdRef = useRef<string | null>(null)
-  const tickRef = useRef<any>(null)
+  const startInFlightRef = useRef(false)
+  const startRequestRef = useRef<Promise<void> | null>(null)
+  const phaseEndInFlightRef = useRef(false)
+  const endsAtRef = useRef<number | null>(null)
   const phaseEndRef = useRef<() => void>(() => {})
 
   const handlePhaseEnd = async () => {
+    if (phaseEndInFlightRef.current) return
+    phaseEndInFlightRef.current = true
+    endsAtRef.current = null
     setRunning(false)
     if (mode === "focus") {
       setRound((r) => r + 1)
@@ -51,26 +57,29 @@ export function StudyView() {
       toast.success("Break over. Back to focus!", { icon: <TimerIcon className="size-4" /> })
       playChime()
     }
+    phaseEndInFlightRef.current = false
   }
   // keep ref current so the interval always calls the latest closure
   useEffect(() => {
     phaseEndRef.current = handlePhaseEnd
   })
 
-  // tick
+  // Timestamp-based ticking keeps the timer accurate when the tab is throttled,
+  // backgrounded, or React batches interval updates. The old decrement loop
+  // could also call the phase transition from inside a state updater more than
+  // once in React Strict Mode.
   useEffect(() => {
-    if (running) {
-      tickRef.current = setInterval(() => {
-        setRemaining((r) => {
-          if (r <= 1) {
-            phaseEndRef.current()
-            return 0
-          }
-          return r - 1
-        })
-      }, 1000)
-      return () => clearInterval(tickRef.current)
+    if (!running) return
+    const tick = () => {
+      const end = endsAtRef.current
+      if (!end) return
+      const next = Math.max(0, Math.ceil((end - Date.now()) / 1000))
+      setRemaining(next)
+      if (next === 0) phaseEndRef.current()
     }
+    tick()
+    const interval = window.setInterval(tick, 250)
+    return () => window.clearInterval(interval)
   }, [running])
 
   // on unload, bank the session
@@ -89,18 +98,45 @@ export function StudyView() {
   }, [])
 
   const start = async () => {
-    if (!sessionIdRef.current) {
-      try {
-        const res = await api.post<{ sessionId: string }>("/study/sessions", { mode: "pomodoro" })
-        sessionIdRef.current = res.sessionId
-        setSessionStartedAt(Date.now())
-      } catch (e: any) { toast.error(e.message); return }
-    }
+    if (startInFlightRef.current) return
+    startInFlightRef.current = true
+    const startedAt = Date.now()
+
+    // Start the local countdown immediately. The API request remains the
+    // authority for recording the session, but it should not add perceived
+    // latency to the timer button.
+    endsAtRef.current = startedAt + remaining * 1000
+    setSessionStartedAt((value) => value ?? startedAt)
     setRunning(true)
+
+    if (!sessionIdRef.current) {
+      const request = api.post<{ sessionId: string }>("/study/sessions", { mode: "pomodoro" })
+        .then((res) => {
+        sessionIdRef.current = res.sessionId
+        })
+        .catch((e: any) => {
+          // Do not leave a timer running if the server rejected the session.
+          endsAtRef.current = null
+          setRunning(false)
+          setSessionStartedAt(null)
+          toast.error(e.message || "Could not start study session")
+        })
+      startRequestRef.current = request
+      await request
+      startRequestRef.current = null
+    }
+    startInFlightRef.current = false
   }
-  const pause = () => setRunning(false)
+  const pause = () => {
+    if (endsAtRef.current) {
+      setRemaining(Math.max(0, Math.ceil((endsAtRef.current - Date.now()) / 1000)))
+    }
+    endsAtRef.current = null
+    setRunning(false)
+  }
   const stop = async () => {
     setRunning(false)
+    if (startRequestRef.current) await startRequestRef.current
     if (sessionIdRef.current) {
       try {
         const res = await api.post<{ durationMin: number; xpEarned: number; streak: number; awardedBadges: any[]; level: number; leveledUp: boolean }>(`/study/sessions/${sessionIdRef.current}/stop`)
@@ -129,6 +165,7 @@ export function StudyView() {
   }
   const reset = () => {
     setRunning(false)
+    endsAtRef.current = null
     setRemaining((mode === "focus" ? focusMin : breakMin) * 60)
   }
 

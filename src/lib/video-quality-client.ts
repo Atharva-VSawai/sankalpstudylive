@@ -1,6 +1,6 @@
 "use client"
 
-import { Room, VideoPresets, VideoQuality, RemoteTrackPublication, Track } from "livekit-client"
+import { Room, VideoQuality, RemoteTrackPublication, Track, VideoPreset } from "livekit-client"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Client-side video quality helper — applies the SERVER-AUTHORITATIVE policy.
@@ -9,10 +9,10 @@ import { Room, VideoPresets, VideoQuality, RemoteTrackPublication, Track } from 
 // from the DB subscription — never trusted from client state). This module is
 // the single place that translates the policy into LiveKit API calls:
 //
-//   - Room options: adaptiveStream + dynacast + 720p local capture preset.
-//   - Per-remote-camera-track: setVideoQuality(cap) to cap the subscribed
-//     simulcast layer (subscriber-side; does NOT reduce the publisher's camera).
-//   - Off-screen tiles: setVideoQuality(LOW) + setSubscribed(false) when a tile
+//   - Room options: adaptiveStream + dynacast + one entitlement-capped encoding.
+//   - Per-remote-camera-track: setVideoDimensions/setVideoQuality cap the
+//     subscriber request (and the publisher is capped independently).
+//   - Off-screen tiles: setSubscribed(false) when a tile
 //     is scrolled out of view (complements LiveKit Adaptive Stream).
 //
 // A malicious client that manipulates React state / DevTools can call these
@@ -25,7 +25,11 @@ export type ClientVideoPolicy = {
   tier: "free" | "paid"
   remoteGridMaxQuality: "LOW" | "MEDIUM" | "HIGH"
   remoteGridMaxHeightPx: number
-  localCapturePreset: "h720"
+  captureWidthPx: number
+  captureHeightPx: number
+  maxBitrateBps: number
+  maxFramerate: number
+  remoteGridMaxWidthPx: number
 }
 
 // Map the policy's quality string to the livekit-client VideoQuality enum.
@@ -42,20 +46,26 @@ function toVideoQuality(q: "LOW" | "MEDIUM" | "HIGH"): VideoQuality {
 //   "only load visible videos" — we do NOT build a competing system.
 // dynacast: true → the publisher pauses unused simulcast layers when no
 //   subscriber needs them (saves uplink bandwidth/CPU).
-// videoCaptureDefaults: 720p preset for the local camera (HD local preview,
-//   NOT 1080p — 720p is plenty and keeps uplink low).
-// publishDefaults: simulcast enabled so the publisher emits multiple layers
-//   (high/medium/low) and each subscriber receives the appropriate one.
+// videoCaptureDefaults + videoEncoding are the hard capture/publish ceiling.
+// Simulcast is disabled because Sankalp has no high-resolution spotlight and
+// every camera is intentionally capped to one low-bandwidth stream.
 export function buildRoomOptions(policy: ClientVideoPolicy) {
+  const encoding = new VideoPreset({
+    width: policy.captureWidthPx,
+    height: policy.captureHeightPx,
+    maxBitrate: policy.maxBitrateBps,
+    maxFramerate: policy.maxFramerate,
+  })
   return {
     adaptiveStream: true,
     dynacast: true,
     videoCaptureDefaults: {
-      resolution: VideoPresets[policy.localCapturePreset].resolution,
+      resolution: { width: policy.captureWidthPx, height: policy.captureHeightPx, frameRate: policy.maxFramerate },
     },
     publishDefaults: {
-      videoSimulcastLayers: [VideoPresets.h720, VideoPresets.h360, VideoPresets.h180],
-      simulcast: true,
+      videoEncoding: encoding.encoding,
+      videoSimulcastLayers: [],
+      simulcast: false,
     },
   }
 }
@@ -77,8 +87,6 @@ export function applyRemoteQualityCap(
 ): boolean {
   if (!pub) return false
   if (pub.source !== Track.Source.Camera) return false
-  // Only cap REMOTE tracks; local tracks are published by us and are already HD.
-  if (!pub.isRemote) return false
   try {
     // PRIMARY cap: setVideoDimensions sets `requestedVideoDimensions`, which
     // Adaptive Stream does NOT override (it only overrides when this is void).
@@ -86,9 +94,13 @@ export function applyRemoteQualityCap(
     // policy max for the entire subscription lifetime, regardless of how large
     // the rendered <video> element is.
     pub.setVideoDimensions({
-      width: Math.round((policy.remoteGridMaxHeightPx * 16) / 9),
+      width: policy.remoteGridMaxWidthPx,
       height: policy.remoteGridMaxHeightPx,
     })
+    // Also cap temporal resolution on subscribers. This is effective for
+    // simulcast publications and reduces bitrate even when a legacy publisher
+    // has not yet adopted Sankalp's single-layer publish policy.
+    pub.setVideoFPS(policy.maxFramerate)
     // BELT-AND-SUSPENDERS: also set the max quality level. When
     // requestedVideoDimensions is set, LiveKit uses the SMALLER of the two
     // (dimensions vs max-quality layer), so this never raises the cap above
@@ -121,8 +133,8 @@ export function reassertRemoteQualityCap(
 export function pauseRemoteTrack(pub: RemoteTrackPublication | undefined): void {
   if (!pub) return
   if (pub.source !== Track.Source.Camera) return
-  if (!pub.isRemote) return
   try {
+    pub.setSubscribed(false)
     pub.setVideoQuality(VideoQuality.LOW)
   } catch {}
 }
@@ -131,6 +143,9 @@ export function pauseRemoteTrack(pub: RemoteTrackPublication | undefined): void 
 // Re-applies the policy cap. LiveKit Adaptive Stream then re-evaluates the
 // rendered size and picks the appropriate layer (up to the cap).
 export function resumeRemoteTrack(pub: RemoteTrackPublication | undefined, policy: ClientVideoPolicy): void {
+  if (pub?.source === Track.Source.Camera) {
+    try { pub.setSubscribed(true) } catch {}
+  }
   applyRemoteQualityCap(pub, policy)
 }
 

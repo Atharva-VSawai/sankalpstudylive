@@ -235,9 +235,12 @@ Hosts, co-hosts, moderators, and admins can manage other participants:
 Authorization: the requester must be the room owner, a `host` or `co_host` RoomMember, or
 a platform `moderator`/`admin` (see `src/app/api/rooms/[id]/members/[userId]/route.ts`).
 
-A future production hardening can additionally call LiveKit's `RoomService.RemoveParticipant`
-to physically eject the user from the LiveKit room. The current contract handles only the
-Sankalp-side membership state; well-behaved clients must honor the kicked flag and disconnect.
+When a host/moderator/admin ends a room, the server closes the Sankalp room and calls the
+server-only LiveKit Room Service to delete the matching LiveKit room. This forcibly disconnects
+all media participants even if the owner browser disappears before client cleanup completes.
+The server also clears presence, marks room members as left, and closes active study sessions
+using server timestamps. If LiveKit administration is temporarily unavailable, database and
+presence cleanup still completes and the failure is logged for retry/reconciliation.
 
 ---
 
@@ -426,3 +429,25 @@ separate "mobile chat" endpoint.
 
 Steps 4, 5, 7, 9, 11 are LiveKit-specific. Steps 1–3, 6, 8, 10 are Sankalp REST and are
 documented exhaustively in `docs/mobile-contract.md`.
+
+## 15. Sankalp low-bandwidth video policy
+
+The web client applies the server-derived policy in `src/lib/video-quality.ts` when it
+constructs the only `Room` instance in `src/components/app/views/room.tsx`:
+
+| Entitlement | Capture / publish ceiling | FPS | Max video bitrate | Subscriber ceiling |
+| --- | --- | ---: | ---: | --- |
+| Free | 426×240 | 15 | 250 kbps | 426×240 |
+| Paid | 640×400 | 15 | 450 kbps | 640×400 |
+
+The web publisher uses one custom `VideoPreset` and `simulcast: false`. This is intentional:
+Sankalp currently has no high-resolution spotlight, so publishing unused 720p/360p/180p layers
+would add encoder/uplink work without providing a product benefit. `dynacast: true` and
+`adaptiveStream: true` remain enabled. Remote tracks are attached with `Track.attach()`;
+off-screen camera tiles are explicitly unsubscribed and resubscribed when visible.
+
+The Android implementation must use the same numeric ceilings with the official LiveKit Android
+SDK: capture/publish 426×240 at 15 fps and 250 kbps for free users; 640×400 at 15 fps and
+450 kbps for paid users; no higher simulcast layer; and a matching remote subscription cap.
+The Android app must derive the entitlement from the existing authenticated backend response,
+not from a client-editable premium flag.

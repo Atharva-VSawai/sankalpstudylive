@@ -12,15 +12,11 @@ import { isPaidPlanActive } from "@/lib/pricing"
 // manipulates React state / DevTools cannot bypass the intended subscription
 // quality.
 //
-// The caps are intentionally expressed as LiveKit VideoQuality levels (LOW /
-// MEDIUM / HIGH) which map to simulcast layers, not as pixel dimensions, so
-// LiveKit Adaptive Stream + Dynacast + simulcast continue to work correctly
-// (the subscriber receives the capped layer; the publisher still publishes a
-// full simulcast stack).
+// Pixel and bitrate caps are explicit because a subscriber-side quality hint
+// cannot undo an unnecessarily high publisher capture/encoding.
 //
-//   FREE subscriber: remote grid max = LOW    (~180p–240p layer)
-//   PAID subscriber: remote grid max = MEDIUM (~360p layer)
-//   LOCAL publisher: camera capture = 720p (h720 preset)
+//   FREE: 426x240 @ 15fps, 250kbps maximum
+//   PAID: 640x400 @ 15fps, 450kbps maximum
 //
 // These numbers are intentionally NOT 1080p to keep bandwidth/CPU reasonable
 // for a study-room product. See docs/architecture.md §Video for rationale.
@@ -31,36 +27,42 @@ export type VideoQualityPolicy = {
   tier: VideoTier
   // Subscriber-side cap for REMOTE camera tracks in the grid view.
   // Expressed as a LiveKit VideoQuality level: "LOW" | "MEDIUM" | "HIGH".
-  // The client calls `publication.setVideoQuality(VideoQuality.X)` on each
-  // remote camera publication to cap the received simulcast layer. This is a
-  // subscriber-side control — the publisher's camera quality is NOT reduced.
+  // The client applies this as a subscriber-side quality hint in addition to
+  // the hard publisher capture/encoding ceiling.
   remoteGridMaxQuality: "LOW" | "MEDIUM" | "HIGH"
   // Pixel dimensions the client uses to hint LiveKit Adaptive Stream for the
   // rendered tile size. Adaptive Stream uses the video element's actual
-  // rendered size to pick a layer; we cap the *requested* dimensions so even
-  // a large tile never receives a layer above the tier cap.
+  // rendered size; this caps the requested dimensions even for a large tile.
+  captureWidthPx: number
+  captureHeightPx: number
+  maxBitrateBps: number
+  maxFramerate: number
+  remoteGridMaxWidthPx: number
   remoteGridMaxHeightPx: number
-  // Local camera capture preset name (livekit-client VideoPresets).
-  // h720 = 1280×720 @ 30fps. We do NOT use h1080 — 720p is plenty for a local
-  // preview and keeps uplink bandwidth + CPU low.
-  localCapturePreset: "h720"
 }
 
 export const VIDEO_QUALITY_POLICIES: Record<VideoTier, VideoQualityPolicy> = {
   free: {
     tier: "free",
-    // Free users: cap remote grid video at LOW (~180p–240p simulcast layer).
-    // This is enough to clearly see the participant while minimizing bandwidth.
+    // One low-bandwidth camera encoding; there is no higher publisher layer.
     remoteGridMaxQuality: "LOW",
+    captureWidthPx: 426,
+    captureHeightPx: 240,
+    maxBitrateBps: 250_000,
+    maxFramerate: 15,
+    remoteGridMaxWidthPx: 426,
     remoteGridMaxHeightPx: 240,
-    localCapturePreset: "h720",
   },
   paid: {
     tier: "paid",
-    // Paid users: cap remote grid video at MEDIUM (~360p simulcast layer).
+    // Approximately 400p for paid study-room video.
     remoteGridMaxQuality: "MEDIUM",
-    remoteGridMaxHeightPx: 360,
-    localCapturePreset: "h720",
+    captureWidthPx: 640,
+    captureHeightPx: 400,
+    maxBitrateBps: 450_000,
+    maxFramerate: 15,
+    remoteGridMaxWidthPx: 640,
+    remoteGridMaxHeightPx: 400,
   },
 }
 
@@ -80,8 +82,12 @@ export function videoQualityPolicyToResponse(p: VideoQualityPolicy) {
   return {
     tier: p.tier,
     remoteGridMaxQuality: p.remoteGridMaxQuality,
+    captureWidthPx: p.captureWidthPx,
+    captureHeightPx: p.captureHeightPx,
+    maxBitrateBps: p.maxBitrateBps,
+    maxFramerate: p.maxFramerate,
+    remoteGridMaxWidthPx: p.remoteGridMaxWidthPx,
     remoteGridMaxHeightPx: p.remoteGridMaxHeightPx,
-    localCapturePreset: p.localCapturePreset,
   }
 }
 

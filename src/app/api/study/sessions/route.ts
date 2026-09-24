@@ -52,6 +52,7 @@ export async function POST(req: NextRequest) {
   const session = await db.studySession.create({
     data: {
       userId: ctx.userId,
+      activeKey: ctx.userId,
       roomId: room?.id ?? null,
       communityId,
       mode,
@@ -118,24 +119,26 @@ function safeParse(s: string): string[] {
 }
 
 // Internal helper (also used by stop route) — closes a session, computes duration server-side.
-export async function closeSession(sessionId: string, timezone: string) {
+export async function closeSession(sessionId: string, timezone: string, requestedEndedAt?: Date) {
   const session = await db.studySession.findUnique({ where: { id: sessionId } })
   if (!session || session.endedAt) return null
-  const endedAt = new Date()
+  const endedAt = requestedEndedAt && requestedEndedAt.getTime() < Date.now() ? requestedEndedAt : new Date()
   const durationMin = Math.min(
     MAX_SESSION_MIN,
     Math.max(0, Math.round((endedAt.getTime() - session.startedAt.getTime()) / 60000))
   )
   if (durationMin < 1) {
     // Discard sub-minute sessions
-    await db.studySession.delete({ where: { id: sessionId } })
+    const removed = await db.studySession.deleteMany({ where: { id: sessionId, endedAt: null } })
+    if (removed.count === 0) return { durationMin: 0, xpEarned: 0, awardedBadges: [] }
     return { durationMin: 0, xpEarned: 0, awardedBadges: [] }
   }
   const xp = durationMin * XP_PER_MINUTE
-  await db.studySession.update({
-    where: { id: sessionId },
-    data: { endedAt, durationMin, xpEarned: xp, isVerified: true },
+  const claimed = await db.studySession.updateMany({
+    where: { id: sessionId, endedAt: null },
+    data: { endedAt, activeKey: null, durationMin, xpEarned: xp, isVerified: true },
   })
+  if (claimed.count === 0) return { durationMin: session.durationMin, xpEarned: session.xpEarned, awardedBadges: [] }
   const { level, oldLevel, leveledUp } = await awardXp(session.userId, durationMin)
   const streak = await bumpStreak(session.userId, timezone)
   const goal = await bumpDailyGoal(session.userId, timezone, durationMin)

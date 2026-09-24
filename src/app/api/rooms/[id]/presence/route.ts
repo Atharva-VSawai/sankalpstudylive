@@ -3,6 +3,8 @@ import { db } from "@/lib/db"
 import { ok, notFound, unauthorized, forbidden, getAuth } from "@/lib/api"
 import { joinRoom, leaveRoom, listParticipants, heartbeat, reapStale, updateParticipant } from "@/lib/presence"
 import { isGeneralStudyRoom, isUnassignedNonGeneralRoom } from "@/lib/room-access"
+import { closeSession } from "@/app/api/study/sessions/route"
+import { beginLiveRoomSession, closeActiveLiveRoomSession, entitlementToResponse } from "@/lib/entitlement"
 
 // GET /api/rooms/[id]/presence
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -29,6 +31,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const role = member?.role ?? "participant"
 
   if (body?.action === "leave") {
+    const allowance = await db.freeRoomAllowance.findUnique({ where: { userId: ctx.userId } })
+    const activeId = allowance?.activeRoomId === id ? allowance.activeSessionId : null
+    if (activeId) {
+      const user = await db.user.findUnique({ where: { id: ctx.userId }, select: { timezone: true } })
+      await closeSession(activeId, user?.timezone ?? "Asia/Kolkata")
+      await closeActiveLiveRoomSession(ctx.userId)
+    }
     leaveRoom(id, ctx.userId)
     await db.roomMember.updateMany({
       where: { roomId: id, userId: ctx.userId, leftAt: null },
@@ -41,6 +50,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   if (body?.action === "heartbeat") {
     heartbeat(id, ctx.userId)
+    const allowance = await db.freeRoomAllowance.findUnique({ where: { userId: ctx.userId } })
+    if (allowance?.activeRoomId === id) {
+      await db.roomMember.updateMany({ where: { roomId: id, userId: ctx.userId, leftAt: null }, data: { lastSeenAt: new Date() } })
+    }
     reapStale(id)
     return ok({ ok: true })
   }
@@ -74,9 +87,28 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     joinedAt: Date.now(),
   })
 
+  // Only verified application presence starts a live study session. Token
+  // issuance and room existence are intentionally not time boundaries.
+  const previous = await db.studySession.findFirst({ where: { userId: ctx.userId, endedAt: null }, orderBy: { startedAt: "desc" } })
+  if (previous) {
+    const user = await db.user.findUnique({ where: { id: ctx.userId }, select: { timezone: true } })
+    await closeSession(previous.id, user?.timezone ?? "Asia/Kolkata")
+  }
+  const session = await db.studySession.create({
+    data: {
+      userId: ctx.userId,
+      activeKey: ctx.userId,
+      roomId: id,
+      communityId: generalStudyRoom ? null : room.communityId,
+      mode: "pomodoro",
+    },
+  })
+  const entitlement = await beginLiveRoomSession(ctx.userId, session.id, id)
+  await db.roomMember.updateMany({ where: { roomId: id, userId: ctx.userId, leftAt: null }, data: { lastSeenAt: new Date() } })
+
   const count = listParticipants(id).length
   await db.room.update({ where: { id }, data: { participantCount: count } })
-  return ok({ participant: p, count })
+  return ok({ participant: p, count, sessionId: session.id, startedAt: session.startedAt, entitlement: entitlementToResponse(entitlement) })
 }
 
 // PATCH /api/rooms/[id]/presence — update camOn only (mic is always off)

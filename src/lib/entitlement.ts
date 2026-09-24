@@ -164,16 +164,20 @@ export async function beginLiveRoomSession(
 // room." Called by: token endpoint (when starting a new session), leave-room
 // flow, heartbeat (when it detects exhaustion), presence-leave, and the
 // study-session stop route.
-export async function closeActiveLiveRoomSession(userId: string): Promise<number> {
+export async function closeActiveLiveRoomSession(userId: string, endedAt?: Date): Promise<number> {
   const row = await getAllowanceRow(userId)
   if (!row.activeSessionStartedAt) return 0
-  const elapsed = liveElapsedSeconds(row)
+  const end = endedAt ?? new Date()
+  const cappedEnd = row.lastHeartbeatAt
+    ? new Date(Math.min(end.getTime(), row.lastHeartbeatAt.getTime() + 10_000))
+    : end
+  const elapsed = Math.max(0, Math.floor((cappedEnd.getTime() - row.activeSessionStartedAt!.getTime()) / 1000))
   // Cap the accrued time so a session that ran past 0 still only counts up to
   // the allowance (prevents negative remaining if the client was slow to leave).
   const remainingBefore = Math.max(0, FREE_ROOM_ALLOWANCE_SECONDS - row.consumedSeconds)
   const accrual = Math.min(elapsed, remainingBefore)
-  await db.freeRoomAllowance.update({
-    where: { userId },
+  const closed = await db.freeRoomAllowance.updateMany({
+    where: { userId, activeSessionId: row.activeSessionId, activeSessionStartedAt: { not: null } },
     data: {
       consumedSeconds: { increment: accrual },
       activeSessionStartedAt: null,
@@ -182,7 +186,7 @@ export async function closeActiveLiveRoomSession(userId: string): Promise<number
       lastHeartbeatAt: null,
     },
   })
-  return accrual
+  return closed.count ? accrual : 0
 }
 
 // ── Public: record a heartbeat from the client while in a room. ──
@@ -190,10 +194,10 @@ export async function closeActiveLiveRoomSession(userId: string): Promise<number
 // lastHeartbeatAt so the live-elapsed cap stays accurate. The heartbeat also
 // returns the current entitlement so the client can detect exhaustion and
 // disconnect itself.
-export async function heartbeatLiveRoomSession(userId: string): Promise<Entitlement> {
+export async function heartbeatLiveRoomSession(userId: string, roomId: string): Promise<Entitlement> {
   await db.freeRoomAllowance.update({
     where: { userId },
-    data: { lastHeartbeatAt: new Date() },
+    data: { lastHeartbeatAt: new Date(), activeRoomId: roomId },
   })
   return getEntitlement(userId)
 }

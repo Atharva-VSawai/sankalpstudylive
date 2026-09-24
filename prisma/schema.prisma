@@ -214,6 +214,7 @@ model RoomMember {
 model StudySession {
   id          String   @id @default(cuid())
   userId      String
+  activeKey   String?  @unique
   roomId      String?
   communityId String?
   startedAt   DateTime @default(now())
