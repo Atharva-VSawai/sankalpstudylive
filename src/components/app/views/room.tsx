@@ -59,6 +59,8 @@ export function RoomView({ id }: { id: string }) {
   const heartbeatRef = useRef<any>(null)
   const qualityReassertRef = useRef<any>(null)
   const cleanupStartedRef = useRef(false)
+  const connectionAttemptRef = useRef(0)
+  const cameraToggleRef = useRef<Promise<void> | null>(null)
 
   // ── Free-allowance entitlement (server-authoritative) ──
   // The countdown is purely visual; the server is the source of truth. We fetch
@@ -145,6 +147,8 @@ export function RoomView({ id }: { id: string }) {
     // later Back/Leave/End action cannot be mistaken for that probe cleanup.
     cleanupStartedRef.current = false
     let cancelled = false
+    const attempt = ++connectionAttemptRef.current
+    const isActiveAttempt = () => !cancelled && connectionAttemptRef.current === attempt && !cleanupStartedRef.current
 
     async function connect() {
       try {
@@ -181,13 +185,14 @@ export function RoomView({ id }: { id: string }) {
         //    configured from the server-authoritative policy. This is the ONLY
         //    place the Room is constructed — never re-create it on re-render.
         const lkRoom = new Room(buildRoomOptions(policy))
+        if (!isActiveAttempt()) return
         lkRoomRef.current = lkRoom
 
         // 3. Connect to LiveKit Cloud (real global media transport — never
         //    localhost/127.0.0.1; the serverUrl comes from the server token
         //    response and points to LiveKit Cloud).
         await lkRoom.connect(tokenRes.serverUrl, tokenRes.token)
-        if (cancelled) { lkRoom.disconnect(); return }
+        if (!isActiveAttempt()) { lkRoom.disconnect(); return }
 
         setConnectionState(lkRoom.state)
 
@@ -253,6 +258,13 @@ export function RoomView({ id }: { id: string }) {
         // LiveKit connection. This is bookkeeping only: it must not delay
         // participant listeners or the first video frame.
         const presenceRes = await api.post<{ sessionId: string; entitlement: Ent }>("/rooms/" + id + "/presence", { camOn: false })
+        if (!isActiveAttempt()) {
+          // Close only this stale attempt's session. A participant-wide leave
+          // here could accidentally remove a newer connection for the same user.
+          api.post("/study/sessions/" + presenceRes.sessionId + "/stop").catch(() => {})
+          lkRoom.disconnect()
+          return
+        }
         sessionIdRef.current = presenceRes.sessionId
         timelapseStudySessionIdRef.current = presenceRes.sessionId
         setEntitlement(presenceRes.entitlement)
@@ -315,6 +327,9 @@ export function RoomView({ id }: { id: string }) {
 
         toast.success("Connected to study room")
       } catch (e: any) {
+        // Ignore failures from stale attempts during a route/auth remount.
+        // Only the currently active connection may update the error banner.
+        if (!isActiveAttempt()) return
         if (e?.code === "FREE_ALLOWANCE_EXHAUSTED" || e?.status === 403) {
           toast.error("Your 30 minutes of free study time are over.")
           setExhausted(true)
@@ -328,9 +343,8 @@ export function RoomView({ id }: { id: string }) {
     connect()
 
     return () => {
-      if (cleanupStartedRef.current) return
-      cleanupStartedRef.current = true
       cancelled = true
+      if (connectionAttemptRef.current === attempt) connectionAttemptRef.current++
       if (lkRoomRef.current) {
         lkRoomRef.current.disconnect()
         lkRoomRef.current = null
@@ -568,21 +582,27 @@ export function RoomView({ id }: { id: string }) {
 
   // ── Camera toggle ──
   const toggleCam = async () => {
+    if (cameraToggleRef.current) return
     const lkRoom = lkRoomRef.current
-    if (!lkRoom) return
-    try {
-      if (camOn) {
-        // Turn off camera
-        await lkRoom.localParticipant.setCameraEnabled(false)
-        setCamOn(false)
-      } else {
-        // Turn on camera (requests camera permission)
-        await lkRoom.localParticipant.setCameraEnabled(true)
-        setCamOn(true)
-      }
-    } catch (e: any) {
-      toast.error("Camera permission denied. Please allow camera access in your browser.")
+    if (!lkRoom || lkRoom.state !== ConnectionState.Connected) {
+      toast.error("Room is reconnecting. Please try video again in a moment.")
+      return
     }
+    const nextEnabled = !camOn
+    const toggle = (async () => {
+      try {
+        await lkRoom.localParticipant.setCameraEnabled(nextEnabled)
+        if (lkRoomRef.current === lkRoom && lkRoom.state === ConnectionState.Connected) {
+          setCamOn(nextEnabled)
+        }
+      } catch (e: any) {
+        if (lkRoomRef.current !== lkRoom || lkRoom.state === ConnectionState.Disconnected) return
+        toast.error(e?.message || "Could not change camera state. Please try again.")
+      } finally {
+        cameraToggleRef.current = null
+      }
+    })()
+    cameraToggleRef.current = toggle
   }
 
   // ── Timelapse toggle (on/off button in the controls bar) ──

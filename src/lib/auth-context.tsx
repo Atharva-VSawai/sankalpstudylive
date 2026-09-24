@@ -48,6 +48,24 @@ type AuthState = {
   refresh: () => Promise<void>
 }
 
+const SUPABASE_AUTH_TIMEOUT_MS = 8000
+
+function withAuthTimeout<T>(promise: Promise<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error("Supabase Auth timed out")), SUPABASE_AUTH_TIMEOUT_MS)
+    promise.then(
+      (value) => { window.clearTimeout(timer); resolve(value) },
+      (error) => { window.clearTimeout(timer); reject(error) },
+    )
+  })
+}
+
+function isTransientAuthError(error: any): boolean {
+  const message = String(error?.message || error || "").toLowerCase()
+  return error?.status >= 500 || message.includes("timed out") || message.includes("timeout") ||
+    message.includes("failed to fetch") || message.includes("network") || message.includes("fetch failed")
+}
+
 const Ctx = createContext<AuthState>(null as any)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -65,7 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // ── Fetch user profile from our backend API ──
   const fetchMe = useCallback(async () => {
     try {
-      const { data: session } = await supabase.auth.getSession()
+      const { data: session } = await withAuthTimeout(supabase.auth.getSession())
       if (session?.session?.access_token) {
         // Set the token for API client
         setToken(session.session.access_token)
@@ -143,7 +161,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (isSupabaseConfigured && typeof window !== "undefined") {
         const code = new URLSearchParams(window.location.search).get("code")
         if (code) {
-          const { error } = await supabase.auth.exchangeCodeForSession(code)
+          const { error } = await withAuthTimeout(supabase.auth.exchangeCodeForSession(code))
           if (!error) {
             const cleanUrl = `${window.location.pathname}${window.location.hash}`
             window.history.replaceState(null, "", cleanUrl)
@@ -186,7 +204,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (isSupabaseConfigured) {
       authActionInFlight.current = true
       try {
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+        const { data, error } = await withAuthTimeout(supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password }))
         if (error || !data.session || !data.user) {
           throw new Error(error?.message || "Invalid email or password")
         }
@@ -195,6 +213,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setMe(synced)
         setLoading(false)
         return
+      } catch (supabaseError: any) {
+        // Keep local/demo accounts usable when Supabase is unavailable or when
+        // the account has not been migrated into Supabase Auth yet.
+        if (!isTransientAuthError(supabaseError) && !String(supabaseError?.message || "").toLowerCase().includes("invalid login credentials")) throw supabaseError
       } finally {
         authActionInFlight.current = false
       }
@@ -222,7 +244,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (isSupabaseConfigured) {
       authActionInFlight.current = true
       try {
-        const { data, error } = await supabase.auth.signUp({ email, password })
+        const { data, error } = await withAuthTimeout(supabase.auth.signUp({ email: email.trim().toLowerCase(), password }))
         if (error) throw new Error(error.message)
         if (!data.session || !data.user) {
           throw new Error("Account created. Check your email to confirm your address, then log in.")
@@ -232,6 +254,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setMe(synced)
         setLoading(false)
         return
+      } catch (supabaseError: any) {
+        // Never fall back to local signup after a timed-out Supabase request:
+        // the remote request may have succeeded even though its response was
+        // delayed, and creating a second local account would split identities.
+        if (isTransientAuthError(supabaseError)) {
+          throw new Error("Supabase Auth is taking too long to respond. Please try again shortly.")
+        }
+        throw supabaseError
       } finally {
         authActionInFlight.current = false
       }
