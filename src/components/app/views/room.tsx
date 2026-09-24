@@ -512,6 +512,7 @@ export function RoomView({ id }: { id: string }) {
       onError: (reason) => {
         toast.error(reason)
         setTimelapseRecording(false)
+        setTimelapseUploading(false)
       },
       onFinalized: async (result) => {
         // Upload the finalized blob to the server (which forwards it to
@@ -769,7 +770,7 @@ export function RoomView({ id }: { id: string }) {
           />
         ) : (
           /* ── Default responsive grid (virtualized for large rooms) ──
-              For ≤ VIRTUALIZATION_THRESHOLD participants, render all tiles
+              For up to 8 participants, render a responsive two-row grid
               (simple, and IntersectionObserver handles off-screen pausing).
               For larger rooms, render only the visible window + overscan so
               we never create 1000+ <video> DOM elements. The participant count
@@ -1104,8 +1105,8 @@ function PinnedLayout({
 // are windowed. This prevents 1000+ <video> DOM elements from crashing the
 // browser. Remote tracks for off-screen tiles are explicitly paused via
 // pauseRemoteTrack so LiveKit stops forwarding their media.
-const VIRTUALIZATION_THRESHOLD = 60 // above this, window the grid
-const OVERSCAN = 6 // extra rows/cols rendered beyond the visible viewport
+const VIRTUALIZATION_THRESHOLD = 8 // first 8 tiles stay in the main two-row grid
+const OVERSCAN = 2 // keep nearby rows ready for instant scroll-in playback
 
 function VirtualizedParticipantGrid({
   participants,
@@ -1138,7 +1139,7 @@ function VirtualizedParticipantGrid({
     const el = containerRef.current
     if (!el) return
     const onScroll = () => {
-      const rowHeight = el.clientHeight / Math.max(1, Math.ceil(el.clientHeight / 120))
+      const rowHeight = Math.max(1, el.scrollHeight / Math.max(1, rows))
       const firstVisible = Math.max(0, Math.floor(el.scrollTop / Math.max(1, rowHeight)) - OVERSCAN)
       const lastVisible = Math.min(rows, firstVisible + Math.ceil(el.clientHeight / Math.max(1, rowHeight)) + OVERSCAN * 2)
       setVisibleRange((prev) => (prev.start === firstVisible && prev.end === lastVisible ? prev : { start: firstVisible, end: lastVisible }))
@@ -1158,20 +1159,37 @@ function VirtualizedParticipantGrid({
     onVisibleCountChange(Math.min(visibleTiles, count))
   }, [visibleRange, cols, count, onVisibleCountChange])
 
+  // Windowing removes off-screen tiles from the DOM, but a track that was
+  // already subscribed may otherwise keep consuming bandwidth. Explicitly
+  // pause every remote tile outside the current viewport window and resume it
+  // as soon as its row enters the overscanned range.
+  useEffect(() => {
+    if (count <= VIRTUALIZATION_THRESHOLD) return
+    for (const [index, participant] of participants.entries()) {
+      if (participant.identity === myId) continue
+      const publication = participant.getTrackPublication(Track.Source.Camera) as RemoteTrackPublication | undefined
+      if (!publication) continue
+      const row = Math.floor(index / cols)
+      const inWindow = row >= visibleRange.start && row < visibleRange.end
+      if (inWindow) resumeRemoteTrack(publication, policy ?? VIDEO_QUALITY_FALLBACK)
+      else pauseRemoteTrack(publication)
+    }
+  }, [participants, myId, cols, visibleRange, count, policy])
+
   // ── Per-tile visibility callback (shared by both branches) ──
   const handleTileVisible = useCallback((p: Participant, visible: boolean) => {
     const pub = p.getTrackPublication(Track.Source.Camera) as RemoteTrackPublication | undefined
-    if (!pub) return
+    if (!pub || p.identity === myId) return
     if (visible) resumeRemoteTrack(pub, policy ?? VIDEO_QUALITY_FALLBACK)
     else pauseRemoteTrack(pub)
-  }, [policy])
+  }, [policy, myId])
 
-  // ── Small rooms: render all tiles in a CSS grid. ──
+  // ── Up to 8 participants: keep the full two-row stage visible. ──
   // IntersectionObserver (via VisibleTile) pauses off-screen remote tracks so
   // LiveKit Adaptive Stream + our explicit pause keep bandwidth low.
   if (count <= VIRTUALIZATION_THRESHOLD) {
     return (
-      <div className="h-full w-full">
+    <div className="h-full w-full overflow-hidden">
         <div className={cn("grid h-full w-full mx-auto gap-2 md:gap-3 auto-rows-fr", responsiveGridClass(count))}>
           {participants.map((p) => (
             <VisibleTile
@@ -1193,8 +1211,8 @@ function VirtualizedParticipantGrid({
   // count in the header still reflects the REAL LiveKit count; only the
   // rendered <video> elements are windowed.
   return (
-    <div ref={containerRef} className="h-full w-full overflow-y-auto scroll-thin">
-      <div className={cn("grid w-full mx-auto gap-2 md:gap-3", responsiveGridClass(count))} style={{ gridAutoRows: "minmax(120px, 1fr)" }}>
+    <div ref={containerRef} data-participant-scroll className="h-full w-full overflow-y-auto scroll-thin">
+      <div className={cn("grid w-full mx-auto gap-2 md:gap-3", responsiveGridClass(count))} style={{ gridAutoRows: "minmax(180px, calc((100vh - 220px) / 2))" }}>
         {Array.from({ length: rows }).map((_, rowIdx) => {
           const startTile = rowIdx * cols
           const endTile = Math.min(count, startTile + cols)
@@ -1268,6 +1286,7 @@ function VisibleTile({
       return
     }
     let stable = true
+    const scrollRoot = el.closest("[data-participant-scroll]")
     const io = new IntersectionObserver(
       (entries) => {
         if (!stable) return
@@ -1276,7 +1295,7 @@ function VisibleTile({
           onVisibleChange?.(e.isIntersecting && e.intersectionRatio > 0.05)
         }
       },
-      { threshold: [0, 0.05, 0.5, 1] }
+      { root: scrollRoot, threshold: [0, 0.05, 0.5, 1] }
     )
     io.observe(el)
     return () => { stable = false; io.disconnect() }
@@ -1299,12 +1318,7 @@ function columnsForCount(n: number): number {
   if (n <= 1) return 1
   if (n === 2) return 2
   if (n <= 4) return 2
-  if (n <= 6) return 3
-  if (n <= 9) return 3
-  if (n <= 12) return 4
-  if (n <= 16) return 4
-  if (n <= 25) return 5
-  return 6
+  return 4
 }
 
 // ── 5-minute video-quality upsell modal (free users only) ──
@@ -1414,18 +1428,11 @@ function responsiveGridClass(n: number): string {
   if (n === 2) return "grid-cols-1 sm:grid-cols-2 max-w-5xl mx-auto"
   // 3–4 participants: 2 per row on mobile, up to 2 on desktop.
   if (n <= 4) return "grid-cols-2 max-w-5xl mx-auto"
-  // 5–6 participants: 2 on mobile, 3 on desktop.
-  if (n <= 6) return "grid-cols-2 lg:grid-cols-3 max-w-6xl mx-auto"
-  // 7–9 participants: 3 per row on mobile, 3 on desktop.
-  if (n <= 9) return "grid-cols-3 max-w-6xl mx-auto"
-  // 10–12 participants: 3 on mobile, 4 on desktop.
-  if (n <= 12) return "grid-cols-3 lg:grid-cols-4 max-w-7xl mx-auto"
-  // 13–16 participants: 4 per row on all sizes.
-  if (n <= 16) return "grid-cols-4 max-w-7xl mx-auto"
-  // 17–25 participants: 5 per row on desktop, 4 on mobile.
-  if (n <= 25) return "grid-cols-4 lg:grid-cols-5 max-w-7xl mx-auto"
-  // 26+: 6 per row on desktop, 4 on mobile (very dense but still usable).
-  return "grid-cols-4 lg:grid-cols-6 max-w-7xl mx-auto"
+  // 5–8 participants: exactly two rows on laptop/desktop.
+  if (n <= 8) return "grid-cols-2 sm:grid-cols-4 max-w-7xl mx-auto"
+  // Larger rooms use a fixed four-column scrollable grid. Keeping the
+  // JavaScript column count aligned with CSS makes windowing reliable.
+  return "grid-cols-4 max-w-7xl mx-auto"
 }
 
 // ── Pomodoro settings dialog ──

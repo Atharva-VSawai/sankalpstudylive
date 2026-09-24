@@ -31,6 +31,10 @@ export async function POST(req: NextRequest) {
   })
   await db.streak.create({ data: { userId: user.id } })
   await db.subscription.create({ data: { userId: user.id, plan: "free" } })
+  // Start the user's single global 30-minute allowance at signup. The
+  // allowance is shared by every room and its 24-hour window is enforced by
+  // the server, so reloads, logouts, and room changes cannot restart it.
+  await db.freeRoomAllowance.create({ data: { userId: user.id } })
 
   // Referral tracking
   if (referralCode) {

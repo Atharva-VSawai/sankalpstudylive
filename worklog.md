@@ -10,6 +10,14 @@
 - Made timelapse creation resilient to stale client session IDs by resolving the latest authenticated user's room session server-side; invalid client references no longer block saving.
 - Changed the global free live-room allowance reset from 34 hours to 24 hours. Token issuance, presence joining, and the post-close recheck remain server-enforced; exhausted users are blocked and directed to purchase a pass.
 - Fixed free-time accounting on reload/leave: clean server closes now charge the full session duration, while heartbeat-loss recovery still uses the last-heartbeat timeout cap. This prevents users from resetting the 30-minute allowance by closing or reloading the site.
+- Simplified timelapse generation: it now continuously records the native camera stream and builds the saved video by seeking through that recording at accelerated positions, producing a true fast-forward video instead of sparse-frame slideshow output.
+- Fixed the profile streak calendar to load timezone-aware data for one selected month at a time, with previous/next month arrows and the future-month navigation disabled.
+- Updated live-room participant rendering: up to 8 participants stay in a responsive two-row grid; 9+ use a four-column scrollable/windowed grid, with off-screen remote tracks explicitly unsubscribed and resumed on scroll using the grid as the visibility root.
+- Replaced the test badge catalog with realistic production milestones for study hours, streaks, daily goals, deep work, live-room participation, and hosting; added server-side award rules and reconciled the local database seed to remove obsolete test badges.
+- Fixed continuous timelapse encoding for browsers that omit WebM duration metadata by falling back to the measured recording time; encoder errors now also clear the saving indicator.
+- Added a server-side stale live-session reaper before token and presence access checks, preventing reloads or closed tabs from obtaining a fresh free-room session while old time is still active.
+- Initialized the global free-room allowance during password signup and Supabase auth sync. The 30-minute allowance now starts at account creation, is shared across all rooms and devices, and is only refreshed by the server after the 24-hour window expires.
+- Added an idempotent seed backfill for existing accounts; it creates missing allowance rows without overwriting usage or restarting an existing free window. Legacy users are also backfilled automatically by auth sync/entitlement checks.
 
 - Fixed Tailwind v4 CSS resolution so the app no longer depends on a parent `Desktop` working directory; global styles now reference the repository's installed Tailwind and animation CSS files.
 - Verified `bun run dev`: `/` returned HTTP 200 and `/api/health` returned HTTP 200 without compilation errors.

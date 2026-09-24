@@ -232,7 +232,7 @@ export function ProfileView() {
       <Card>
         <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Flame className="size-4 text-orange-500" /> Streak calendar</CardTitle></CardHeader>
         <CardContent>
-          <StreakCalendar months={3} />
+          <StreakCalendar />
         </CardContent>
       </Card>
 

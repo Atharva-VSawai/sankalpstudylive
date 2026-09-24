@@ -92,6 +92,15 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Every account gets exactly one server-owned global allowance. Creating it
+  // here also backfills accounts created before free-room enforcement existed;
+  // upsert keeps repeat logins from moving the 24-hour window start.
+  await db.freeRoomAllowance.upsert({
+    where: { userId: user.id },
+    create: { userId: user.id },
+    update: {},
+  })
+
   // Update last login
   await db.user.update({
     where: { id: user.id },

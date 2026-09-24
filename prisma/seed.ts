@@ -20,21 +20,40 @@ const COMMUNITIES = [
 ]
 
 const BADGES = [
-  { slug: "first_session", name: "First Steps", description: "Completed your first study session.", tier: "bronze", xpReward: 50 },
-  { slug: "streak_7", name: "Week Warrior", description: "Studied 7 days in a row.", tier: "bronze", xpReward: 100 },
-  { slug: "streak_30", name: "Monthly Resolve", description: "Studied 30 days in a row.", tier: "silver", xpReward: 300 },
-  { slug: "streak_100", name: "Century of Focus", description: "Studied 100 days in a row.", tier: "gold", xpReward: 1000 },
-  { slug: "night_owl", name: "Night Owl", description: "Studied after midnight.", tier: "bronze", xpReward: 50 },
-  { slug: "early_bird", name: "Early Bird", description: "Studied before 6 AM.", tier: "bronze", xpReward: 50 },
-  { slug: "goal_master", name: "Goal Master", description: "Hit your daily goal 10 times.", tier: "silver", xpReward: 250 },
-  { slug: "social_learner", name: "Social Learner", description: "Studied with 5 friends.", tier: "bronze", xpReward: 100 },
-  { slug: "room_host", name: "Room Host", description: "Hosted your first live room.", tier: "bronze", xpReward: 100 },
-  { slug: "marathon", name: "Marathon", description: "Studied 4+ hours in a single session.", tier: "gold", xpReward: 500 },
-  { slug: "level_10", name: "Level 10", description: "Reached level 10.", tier: "gold", xpReward: 500 },
-  { slug: "level_25", name: "Level 25", description: "Reached level 25.", tier: "platinum", xpReward: 2000 },
+  { slug: "first_session", name: "First Focus", description: "Completed your first study session.", tier: "bronze", xpReward: 50 },
+  { slug: "study_1h", name: "First Hour", description: "Studied for a total of 1 hour.", tier: "bronze", xpReward: 75 },
+  { slug: "study_10h", name: "Building Momentum", description: "Studied for a total of 10 hours.", tier: "silver", xpReward: 200 },
+  { slug: "study_50h", name: "Dedicated Learner", description: "Studied for a total of 50 hours.", tier: "gold", xpReward: 500 },
+  { slug: "study_100h", name: "Century of Focus", description: "Studied for a total of 100 hours.", tier: "platinum", xpReward: 1000 },
+  { slug: "streak_3", name: "Three-Day Start", description: "Studied on 3 consecutive days.", tier: "bronze", xpReward: 50 },
+  { slug: "streak_7", name: "Week in Motion", description: "Studied on 7 consecutive days.", tier: "silver", xpReward: 125 },
+  { slug: "streak_30", name: "Monthly Resolve", description: "Studied on 30 consecutive days.", tier: "gold", xpReward: 400 },
+  { slug: "streak_100", name: "Unstoppable", description: "Studied on 100 consecutive days.", tier: "platinum", xpReward: 1200 },
+  { slug: "goal_7", name: "Goal Setter", description: "Completed your daily goal on 7 days.", tier: "bronze", xpReward: 100 },
+  { slug: "goal_30", name: "Goal Keeper", description: "Completed your daily goal on 30 days.", tier: "silver", xpReward: 350 },
+  { slug: "early_bird", name: "Morning Momentum", description: "Completed a study session before 6 AM.", tier: "bronze", xpReward: 50 },
+  { slug: "night_owl", name: "Late-Night Scholar", description: "Completed a study session between midnight and 4 AM.", tier: "bronze", xpReward: 50 },
+  { slug: "deep_work", name: "Deep Work", description: "Completed a focused study session of at least 2 hours.", tier: "silver", xpReward: 200 },
+  { slug: "marathon", name: "Study Marathon", description: "Completed a focused study session of at least 4 hours.", tier: "gold", xpReward: 500 },
+  { slug: "room_first", name: "Room Regular", description: "Completed your first live-room study session.", tier: "bronze", xpReward: 75 },
+  { slug: "room_10", name: "Shared Focus", description: "Completed 10 live-room study sessions.", tier: "silver", xpReward: 250 },
+  { slug: "room_host", name: "Study Host", description: "Hosted your first live study room.", tier: "bronze", xpReward: 100 },
 ]
 
 async function main() {
+  // Backfill the one global allowance row for accounts created before free
+  // live-room enforcement was added. createMany + skipDuplicates preserves
+  // any existing consumed time, active session, and 24-hour window.
+  const existingUsers = await db.user.findMany({ select: { id: true } })
+  if (existingUsers.length) {
+    await Promise.all(existingUsers.map(({ id }) => db.freeRoomAllowance.upsert({
+      where: { userId: id },
+      create: { userId: id },
+      update: {},
+    })))
+    console.log(`Backfilled free-room allowances for ${existingUsers.length} accounts.`)
+  }
+
   console.log("Seeding communities…")
   for (const c of COMMUNITIES) {
     await db.community.upsert({
@@ -45,6 +64,12 @@ async function main() {
   }
 
   console.log("Seeding badges…")
+  const badgeSlugs = BADGES.map((b) => b.slug)
+  const obsoleteBadges = await db.badge.findMany({ where: { slug: { notIn: badgeSlugs } }, select: { id: true } })
+  if (obsoleteBadges.length) {
+    await db.userBadge.deleteMany({ where: { badgeId: { in: obsoleteBadges.map((b) => b.id) } } })
+    await db.badge.deleteMany({ where: { id: { in: obsoleteBadges.map((b) => b.id) } } })
+  }
   for (const b of BADGES) {
     await db.badge.upsert({
       where: { slug: b.slug },

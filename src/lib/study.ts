@@ -159,7 +159,7 @@ export async function evaluateBadges(
     where: { id: userId },
     include: {
       badges: { include: { badge: true } },
-      profile: { select: { totalXp: true } },
+      profile: { select: { totalXp: true, totalMinutes: true } },
     },
   })
   const streak = await db.streak.findUnique({ where: { userId } })
@@ -170,20 +170,37 @@ export async function evaluateBadges(
     const badge = await db.badge.findUnique({ where: { slug } })
     if (!badge) return
     await db.userBadge.create({ data: { userId, badgeId: badge.id } }).catch(() => {})
+    have.add(slug)
     awarded.push({ slug: badge.slug, name: badge.name, description: badge.description, tier: badge.tier })
   }
 
   await grant("first_session")
-  const hour = startedAt.getHours() // approximate; production uses tz-aware hour
+  const timezone = user?.timezone ?? "Asia/Kolkata"
+  const localHour = Number(new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", hour12: false }).format(startedAt))
+  const hour = Number.isFinite(localHour) ? (localHour === 24 ? 0 : localHour) : startedAt.getHours()
   if (hour >= 0 && hour < 4) await grant("night_owl")
   if (hour < 6) await grant("early_bird")
+  const totalMinutes = (user?.profile?.totalMinutes ?? 0) + sessionMinutes
+  if (totalMinutes >= 60) await grant("study_1h")
+  if (totalMinutes >= 600) await grant("study_10h")
+  if (totalMinutes >= 3000) await grant("study_50h")
+  if (totalMinutes >= 6000) await grant("study_100h")
+  if (sessionMinutes >= 120) await grant("deep_work")
   if (sessionMinutes >= 240) await grant("marathon")
+  const completedGoals = await db.dailyGoal.count({ where: { userId, completed: true } })
+  if (completedGoals >= 7) await grant("goal_7")
+  if (completedGoals >= 30) await grant("goal_30")
   if ((streak?.current ?? 0) >= 7) await grant("streak_7")
+  if ((streak?.current ?? 0) >= 3) await grant("streak_3")
   if ((streak?.current ?? 0) >= 30) await grant("streak_30")
   if ((streak?.current ?? 0) >= 100) await grant("streak_100")
-  const level = user?.profile ? levelForXp(user.profile.totalXp + sessionMinutes * XP_PER_MINUTE) : 1
-  if (level >= 10) await grant("level_10")
-  if (level >= 25) await grant("level_25")
+  if (ctx.roomId) {
+    const roomSessions = await db.studySession.count({ where: { userId, roomId: ctx.roomId, endedAt: { not: null } } })
+    if (roomSessions >= 1) await grant("room_first")
+    if (roomSessions >= 10) await grant("room_10")
+    const room = await db.room.findUnique({ where: { id: ctx.roomId }, select: { ownerId: true } })
+    if (room?.ownerId === userId) await grant("room_host")
+  }
 
   return awarded
 }

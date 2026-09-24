@@ -119,8 +119,25 @@ export async function getEntitlement(userId: string): Promise<Entitlement> {
 // ── Public: can the user join a live room right now? (server-authoritative) ──
 // Returns the entitlement so the caller can also return it to the client.
 export async function canJoinLiveRoom(userId: string): Promise<{ allowed: boolean; entitlement: Entitlement }> {
+  // A browser reload/tab close may prevent the clean leave request from
+  // arriving. Reap that stale live session before checking access, otherwise
+  // a new token request could see only the last heartbeat and appear free.
+  await reapStaleLiveRoomSession(userId)
   const ent = await getEntitlement(userId)
   return { allowed: ent.canJoinLiveRoom, entitlement: ent }
+}
+
+async function reapStaleLiveRoomSession(userId: string): Promise<void> {
+  const row = await db.freeRoomAllowance.findUnique({
+    where: { userId },
+    select: { activeSessionId: true, activeSessionStartedAt: true, lastHeartbeatAt: true },
+  })
+  if (!row?.activeSessionId || !row.activeSessionStartedAt) return
+  const timeoutAt = row.lastHeartbeatAt
+    ? new Date(row.lastHeartbeatAt.getTime() + 10_000)
+    : new Date()
+  if (timeoutAt.getTime() >= Date.now()) return
+  await closeActiveLiveRoomSession(userId, timeoutAt)
 }
 
 // ── Public: begin a live-room session for the user. ──
