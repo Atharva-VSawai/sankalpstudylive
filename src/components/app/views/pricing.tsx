@@ -348,11 +348,11 @@ export function PricingView() {
       </div>
 
       {/* Payment History */}
-      {me && paymentHistory?.payments?.length > 0 && (
+      {me && (paymentHistory?.payments?.length ?? 0) > 0 && (
         <div className="mt-10">
           <h2 className="text-lg font-semibold mb-3">Payment History</h2>
           <div className="space-y-2">
-            {paymentHistory.payments.map((p: any) => (
+            {(paymentHistory?.payments ?? []).map((p: any) => (
               <Card key={p.id}>
                 <CardContent className="p-3 flex items-center justify-between">
                   <div>

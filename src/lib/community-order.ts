@@ -20,5 +20,5 @@ export const COMMUNITY_ORDER_INDEX = new Map(
 )
 
 export function communityOrderIndex(slug: string | null | undefined) {
-  return slug ? (COMMUNITY_ORDER_INDEX.get(slug) ?? COMMUNITY_ORDER.length) : 0
+  return slug ? (COMMUNITY_ORDER_INDEX.get(slug as (typeof COMMUNITY_ORDER)[number]["slug"]) ?? COMMUNITY_ORDER.length) : 0
 }

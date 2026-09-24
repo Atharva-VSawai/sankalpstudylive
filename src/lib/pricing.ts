@@ -3,12 +3,12 @@
 
 // ── FREE LIVE-ROOM ALLOWANCE ──
 // Free users get FREE_ROOM_ALLOWANCE_SECONDS (1800 = 30 min) of live study-room
-// access per rolling FREE_ROOM_WINDOW_MS (24h) period. The allowance is GLOBAL
+// access per rolling FREE_ROOM_WINDOW_MS (34h) period. The allowance is GLOBAL
 // across the entire platform (not per-room, not per-session, not per-device).
 // The server is the source of truth; the frontend countdown is purely visual.
 // See src/lib/entitlement.ts for the authoritative logic.
 export const FREE_ROOM_ALLOWANCE_SECONDS = 30 * 60 // 30 minutes
-export const FREE_ROOM_WINDOW_MS = 24 * 60 * 60 * 1000 // 24 hours
+export const FREE_ROOM_WINDOW_MS = 34 * 60 * 60 * 1000 // 34 hours
 // Legacy alias kept for any code still importing the old name. The new logic
 // does NOT use this — it uses FREE_ROOM_ALLOWANCE_SECONDS + FREE_ROOM_WINDOW_MS.
 export const FREE_ALLOWANCE_MIN = 30

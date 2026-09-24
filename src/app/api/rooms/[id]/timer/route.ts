@@ -28,7 +28,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (action === "stop") {
     stopTimer(id)
     const profile = await db.profile.findUnique({ where: { userId: ctx.userId } })
-    postMessage(id, "system", "Timer stopped", true)
+    postMessage(id, "system", "System", "Timer stopped", true)
     return ok({ timer: getTimer(id) })
   }
 
@@ -39,7 +39,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const profile = await db.profile.findUnique({ where: { userId: ctx.userId } })
   const timer = setTimer(id, mode, minutes, ctx.userId)
-  postMessage(id, "system", `${profile?.displayName ?? "Host"} started a ${minutes} min ${mode} timer`, true)
+  postMessage(id, "system", "System", `${profile?.displayName ?? "Host"} started a ${minutes} min ${mode} timer`, true)
   return ok({ timer })
 }
 

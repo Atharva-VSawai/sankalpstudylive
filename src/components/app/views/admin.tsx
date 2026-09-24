@@ -170,6 +170,7 @@ function MetricCard({ label, value, sub, icon }: { label: string; value: any; su
 
 // ── Users Section ──
 function UsersSection() {
+  const { navigate } = useRouter()
   const qc = useQueryClient()
   const [q, setQ] = useState("")
   const [status, setStatus] = useState("active")
@@ -289,6 +290,7 @@ function Row({ label, value }: { label: string; value: any }) { return <div clas
 
 // ── Subscriptions Section ──
 function SubscriptionsSection() {
+  const { navigate } = useRouter()
   const { data } = useQuery({ queryKey: ["admin", "subscriptions"], queryFn: () => api.get<any>("/admin/subscriptions", { limit: 50 }) })
   const subs = data?.subscriptions ?? []
   return (
@@ -566,4 +568,3 @@ async function downloadExport(type: string) {
     toast.success("CSV downloaded")
   } catch (e: any) { toast.error(e.message || "Export failed") }
 }
-

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 
 // Animated count-up hook. Animates from 0 to `end` over `duration` ms once visible.
-export function useCountUp(end: number, duration = 1400, start = 0): { ref: React.RefObject<HTMLSpanElement>, value: number } {
+export function useCountUp(end: number, duration = 1400, start = 0): { ref: React.RefObject<HTMLSpanElement | null>, value: number } {
   const ref = useRef<HTMLSpanElement>(null)
   const [value, setValue] = useState(start)
   const started = useRef(false)

@@ -12,12 +12,16 @@ export async function GET(req: NextRequest) {
   const q = url.searchParams.get("q")?.toLowerCase()
   const page = Math.max(1, Number(url.searchParams.get("page") || 1))
   const limit = Math.min(40, Math.max(1, Number(url.searchParams.get("limit") || 20)))
+  const activeSince = new Date(Date.now() - 60_000)
 
   // Public discovery: only show DEFAULT (official) and CUSTOM (user-created) rooms.
   // TEST rooms are excluded from public discovery.
   const where: any = { isListed: true, roomType: { not: "TEST" } }
   if (communityId) where.communityId = communityId
   if (onlyLive) where.isLive = true
+  if (onlyLive) {
+    where.members = { some: { leftAt: null, lastSeenAt: { gt: activeSince } } }
+  }
   if (q) where.name = { contains: q }
 
   const [rooms, total] = await Promise.all([
@@ -26,7 +30,15 @@ export async function GET(req: NextRequest) {
       orderBy: [{ isLive: "desc" }, { participantCount: "desc" }, { createdAt: "desc" }],
       skip: (page - 1) * limit,
       take: limit,
-      include: { community: true, owner: { include: { profile: true } } },
+      include: {
+        community: true,
+        owner: { include: { profile: true } },
+        _count: {
+          select: {
+            members: { where: { leftAt: null, lastSeenAt: { gt: activeSince } } },
+          },
+        },
+      },
     }),
     db.room.count({ where }),
   ])
@@ -35,12 +47,12 @@ export async function GET(req: NextRequest) {
       id: r.id,
       name: r.name,
       description: r.description,
-      isLive: r.isLive,
+      isLive: r.isLive && r._count.members > 0,
       isPrivate: r.isPrivate,
       isDefaultRoom: r.isDefaultRoom,
       roomType: r.roomType,
       focusMode: r.focusMode,
-      participantCount: r.participantCount,
+      participantCount: r._count.members,
       tags: safeParse(r.tags),
       startedAt: r.startedAt,
       community: r.community ? { slug: r.community.slug, name: r.community.name, color: r.community.color } : null,

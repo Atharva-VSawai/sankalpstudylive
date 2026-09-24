@@ -155,7 +155,7 @@ export function RoomView({ id }: { id: string }) {
         setError(null)
         // 1. Request token from Sankalp backend. The server is the source of
         // truth for the free allowance — it refuses to issue a token when the
-        // global 30-min/24h allowance is exhausted. The token response also
+        // global 30-min/34h allowance is exhausted. The token response also
         // includes the server-authoritative entitlement so the client can
         // render the countdown.
         type TokenRes = {
@@ -198,9 +198,9 @@ export function RoomView({ id }: { id: string }) {
 
         // 4. Listen for participant events
         const updateParticipants = () => {
-          const all = Array.from(lkRoom.remoteParticipants.values())
+          const all: Participant[] = Array.from(lkRoom.remoteParticipants.values())
           // Include local participant
-          if (lkRoom.localParticipant) all.unshift(lkRoom.localParticipant)
+          if (lkRoom.localParticipant) all.unshift(lkRoom.localParticipant as Participant)
           setParticipants(all)
           // Refresh subscribed-track count for dev diagnostics.
           setSubscribedTrackCount(countSubscribedRemoteVideoTracks(lkRoom))
@@ -209,13 +209,13 @@ export function RoomView({ id }: { id: string }) {
 
         lkRoom.on(RoomEvent.ParticipantConnected, updateParticipants)
         lkRoom.on(RoomEvent.ParticipantDisconnected, updateParticipants)
-        lkRoom.on(RoomEvent.TrackSubscribed, (pub, p) => {
+        lkRoom.on(RoomEvent.TrackSubscribed, (_track, pub) => {
           updateParticipants()
           // Apply the subscriber-side quality cap to every newly subscribed
           // remote camera track. This is the key bandwidth/cost control: each
           // subscriber receives at most the policy's max quality layer, not the
           // publisher's full HD stream.
-          applyRemoteQualityCap(pub as RemoteTrackPublication, policy)
+          applyRemoteQualityCap(pub as unknown as RemoteTrackPublication, policy)
         })
         lkRoom.on(RoomEvent.TrackUnsubscribed, updateParticipants)
         // ── Re-assert quality caps when Adaptive Stream changes the stream state ──
@@ -226,7 +226,7 @@ export function RoomView({ id }: { id: string }) {
         // original quality" — without this, Adaptive Stream overrides the
         // one-time setVideoQuality call after a few seconds.
         lkRoom.on(RoomEvent.TrackStreamStateChanged, (pub, _streamState, _p) => {
-          reassertRemoteQualityCap(pub as RemoteTrackPublication, policy)
+          reassertRemoteQualityCap(pub as unknown as RemoteTrackPublication, policy)
         })
         lkRoom.on(RoomEvent.ConnectionStateChanged, (state) => {
           setConnectionState(state)
@@ -330,8 +330,8 @@ export function RoomView({ id }: { id: string }) {
         // Ignore failures from stale attempts during a route/auth remount.
         // Only the currently active connection may update the error banner.
         if (!isActiveAttempt()) return
-        if (e?.code === "FREE_ALLOWANCE_EXHAUSTED" || e?.status === 403) {
-          toast.error("Your 30 minutes of free study time are over.")
+        if (e?.code === "FREE_ALLOWANCE_EXHAUSTED") {
+          toast.error("Your 30 free minutes are over. Get a pass to join live rooms.")
           setExhausted(true)
         } else {
           setError(e.message || "Failed to connect to room")
@@ -745,7 +745,7 @@ export function RoomView({ id }: { id: string }) {
       <div className="flex-1 overflow-hidden p-2 md:p-3">
         {!isConnected ? (
           <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
-            {connectionState === ConnectionState.Reconnecting ? "Reconnecting…" : "Connecting to study room…"}
+            {connectionState === ConnectionState.SignalReconnecting ? "Reconnecting…" : "Connecting to study room…"}
           </div>
         ) : count === 0 ? (
           <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
@@ -943,14 +943,14 @@ function ParticipantTile({
       ParticipantEvent.LocalTrackUnpublished,
     ]
     const handler = () => syncTrack()
-    for (const ev of events) participant.on(ev, handler)
+    for (const ev of events) participant.on(ev as any, handler)
 
     // Also poll briefly as a safety net for track readiness races
     const poll = setInterval(syncTrack, 2000)
 
     return () => {
       clearInterval(poll)
-      for (const ev of events) participant.off(ev, handler)
+      for (const ev of events) participant.off(ev as any, handler)
       if (attachedTrack) {
         try { attachedTrack.detach(el) } catch {}
         attachedTrack = null
@@ -1461,7 +1461,7 @@ function PomodoroSettings({ config, onSave, onClose }: { config: PomodoroConfig;
 function playChime() { try { const ctx = new (window.AudioContext || (window as any).webkitAudioContext)(); const o = ctx.createOscillator(); const g = ctx.createGain(); o.connect(g); g.connect(ctx.destination); o.frequency.value = 660; o.type = "sine"; g.gain.setValueAtTime(0.0001, ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.15, ctx.currentTime + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.8); o.start(); o.stop(ctx.currentTime + 0.8) } catch {} }
 
 // ── 5-minute free-allowance warning modal ──
-// Shown ONCE per 24h window when the countdown crosses 5:00. The server marks
+// Shown ONCE per 34h window when the countdown crosses 5:00. The server marks
 // warningShown so it doesn't reappear on refresh/rejoin. Closing it doesn't
 // re-trigger it (warningShownRef prevents local re-show too).
 function FreeWarningModal({ remaining, resetsAt, onClose, onUpgrade }: {
@@ -1484,7 +1484,7 @@ function FreeWarningModal({ remaining, resetsAt, onClose, onUpgrade }: {
         <h3 className="text-lg font-bold">5 minutes of free study time remaining today</h3>
         <p className="text-sm text-muted-foreground">
           Continue studying with a paid plan. Your free allowance resets in{" "}
-          {resetsAt ? new Date(resetsAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "24 hours"}.
+          {resetsAt ? new Date(resetsAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "34 hours"}.
         </p>
         <div className="rounded-lg bg-muted px-3 py-2 text-center">
           <span className="font-mono tabular-nums text-2xl font-bold text-amber-600 dark:text-amber-400">{fmt(remaining)}</span>
@@ -1540,7 +1540,7 @@ function TimelapsePromptModal({ onEnable, onDismiss }: {
 // Shown when the server reports the free allowance is exhausted (00:00). The
 // room has already been closed by the server (heartbeat returned exhausted=true
 // or the token request was refused). The user must upgrade or wait for the
-// 24h reset. This overlay blocks the room view until dismissed via navigation.
+// 34h reset. This overlay blocks the room view until dismissed via navigation.
 function ExhaustedOverlay({ resetsAt, onPlan, onSolo }: {
   resetsAt?: string
   onPlan: () => void

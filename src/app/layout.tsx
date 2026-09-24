@@ -15,6 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://www.sankalpstudylive.in"),
   title: "Sankalp — Study with people preparing for the same goal",
   description:
     "Sankalp is an India-focused virtual study platform. Join live study rooms and communities for GATE, JEE, NEET, UPSC, CAT, SSC, Banking, MPSC, Placements, DSA and more. Study together, stay accountable, earn streaks.",

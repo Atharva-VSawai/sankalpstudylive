@@ -6,7 +6,7 @@ import { resolveVideoQualityPolicy, videoQualityPolicyToResponse, VideoQualityPo
 // ─────────────────────────────────────────────────────────────────────────────
 // FREE LIVE-ROOM ALLOWANCE — server-authoritative entitlement engine.
 // ─────────────────────────────────────────────────────────────────────────────
-// ONE global allowance per user: 30 minutes per rolling 24 hours, shared across
+// ONE global allowance per user: 30 minutes per rolling 34 hours, shared across
 // ALL live study rooms on the platform. The server is the source of truth; the
 // frontend countdown is purely visual and may be freely manipulated by the user
 // without affecting their real entitlement.
@@ -16,7 +16,7 @@ import { resolveVideoQualityPolicy, videoQualityPolicyToResponse, VideoQualityPo
 //     auto-closes the previous one first (server-side, idempotent).
 //   - Consumed time is computed from server clocks (StudySession.startedAt vs
 //     server now), never from client-submitted durations.
-//   - The 24-hour window resets server-side when now - windowStartedAt >= 24h.
+//   - The 34-hour window resets server-side when now - windowStartedAt >= 34h.
 //   - Paid users (isPaidPlanActive) bypass the allowance entirely.
 //
 // All public functions here are safe to call from API routes. They never trust
@@ -28,7 +28,7 @@ export type Entitlement = {
   remainingFreeSeconds: number // 0 if paid (unlimited) — client shows no countdown
   consumedFreeSeconds: number
   windowStartedAt: Date
-  windowResetsAt: Date // windowStartedAt + 24h
+  windowResetsAt: Date // windowStartedAt + 34h
   allowanceSeconds: number
   hasActiveSession: boolean
   activeSessionId: string | null
@@ -41,7 +41,7 @@ export type Entitlement = {
   videoQuality: VideoQualityPolicyResponse
 }
 
-// ── Get-or-create the allowance row for a user, applying a 24h reset if due. ──
+// ── Get-or-create the allowance row for a user, applying a 34h reset if due. ──
 // This is the ONLY function that mutates the window reset. It must be called
 // before any read of consumedSeconds so the window is current.
 async function getAllowanceRow(userId: string) {
@@ -51,7 +51,7 @@ async function getAllowanceRow(userId: string) {
     row = await db.freeRoomAllowance.create({ data: { userId } })
     return row
   }
-  // Reset the rolling 24h window if it has expired.
+  // Reset the rolling 34h window if it has expired.
   if (now.getTime() - row.windowStartedAt.getTime() >= FREE_ROOM_WINDOW_MS) {
     row = await db.freeRoomAllowance.update({
       where: { userId },
@@ -142,6 +142,13 @@ export async function beginLiveRoomSession(
   // 1. Close any prior active session (accrue its time into consumedSeconds).
   await closeActiveLiveRoomSession(userId)
 
+  // Re-check AFTER closing the previous session. Closing it may consume the
+  // final seconds, so a check performed only before the close is bypassable.
+  const { allowed } = await canJoinLiveRoom(userId)
+  if (!allowed) {
+    throw new FreeAllowanceExhaustedError()
+  }
+
   // 2. Mark the new active session.
   const now = new Date()
   await db.freeRoomAllowance.update({
@@ -154,6 +161,14 @@ export async function beginLiveRoomSession(
     },
   })
   return getEntitlement(userId)
+}
+
+export class FreeAllowanceExhaustedError extends Error {
+  code = "FREE_ALLOWANCE_EXHAUSTED"
+  constructor() {
+    super("Free live-room allowance exhausted")
+    this.name = "FreeAllowanceExhaustedError"
+  }
 }
 
 // ── Public: close the user's current live-room session (if any). ──
@@ -204,7 +219,7 @@ export async function heartbeatLiveRoomSession(userId: string, roomId: string): 
 
 // ── Public: mark the 5-minute warning as shown for this window. ──
 // Idempotent: setting it again is a no-op. The warning is shown ONCE per
-// window; the flag clears on the 24h reset.
+// window; the flag clears on the 34h reset.
 export async function markWarningShown(userId: string): Promise<void> {
   await db.freeRoomAllowance.update({
     where: { userId },

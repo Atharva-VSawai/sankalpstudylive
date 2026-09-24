@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
   }
 
   // If a room is specified, ensure the user is a member of it.
-  let room = null
+  let room: { id: string; communityId: string | null } | null = null
   if (body?.roomId) {
     room = await db.room.findUnique({ where: { id: String(body.roomId) } })
     if (!room) return badRequest("Unknown room")

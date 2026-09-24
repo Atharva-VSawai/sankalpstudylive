@@ -22,7 +22,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ type
   } else if (type === "payments") {
     const payments = await db.payment.findMany({ include: { user: { include: { profile: { select: { displayName: true } } } } }, take: 1000 })
     csv = ["id,userId,userName,amount,currency,plan,status,provider,providerRef,createdAt"].join(",") + "\r\n"
-    payments.forEach((p) => { csv += [p.id, p.userId, csvE(p.user.profile?.displayName ?? p.user.email), p.amount, p.currency, p.plan, p.status, p.provider, csvE(p.providerRef ?? ""), p.createdAt.toISOString()].join(",") + "\r\n" })
+    payments.forEach((p) => { csv += [p.id, p.userId, csvE(p.user.profile?.displayName ?? p.user.email), p.amount, p.currency, p.plan, p.status, p.provider, csvE(p.razorpayPaymentId ?? p.razorpayOrderId ?? p.razorpaySubscriptionId ?? ""), p.createdAt.toISOString()].join(",") + "\r\n" })
     filename = `sankalp-payments-${new Date().toISOString().slice(0, 10)}.csv`
   } else if (type === "subscriptions") {
     const subs = await db.subscription.findMany({ include: { user: { include: { profile: { select: { displayName: true } } } } }, take: 1000 })

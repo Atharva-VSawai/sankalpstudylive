@@ -33,6 +33,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     postMessage(
       id,
       "system",
+      "System",
       `${hostProfile?.displayName ?? "Host"} lowered ${targetProfile?.displayName ?? "a participant"}'s hand`,
       true
     )
@@ -50,7 +51,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const profile = await db.profile.findUnique({ where: { userId: ctx.userId } })
   const name = profile?.displayName ?? "Someone"
-  postMessage(id, "system", raised ? `${name} raised their hand ✋` : `${name} lowered their hand`, true)
+  postMessage(id, "system", "System", raised ? `${name} raised their hand ✋` : `${name} lowered their hand`, true)
 
   return ok({ handRaised: raised, handRaisedAt: updated.handRaisedAt })
 }

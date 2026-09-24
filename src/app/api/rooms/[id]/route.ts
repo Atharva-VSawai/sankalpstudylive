@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server"
 import { db } from "@/lib/db"
 import { ok, notFound, unauthorized, forbidden, badRequest, getAuth, isModerator } from "@/lib/api"
-import { clearRoom, listParticipants, getTimer } from "@/lib/presence"
+import { clearRoom, listParticipants, getTimer, reapStale } from "@/lib/presence"
 import { closeSession } from "@/app/api/study/sessions/route"
 import { closeActiveLiveRoomSession } from "@/lib/entitlement"
 import { closeLiveKitRoom } from "@/lib/livekit-admin"
@@ -15,7 +15,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   })
   if (!room) return notFound("Room not found")
 
+  reapStale(id)
   const participants = listParticipants(id)
+  const activeSince = new Date(Date.now() - 60_000)
+  const activeMemberCount = room.members.filter(
+    (member) => member.leftAt === null && member.lastSeenAt > activeSince,
+  ).length
   return ok({
     room: {
       id: room.id,
@@ -26,7 +31,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       isListed: room.isListed,
       isDefaultRoom: room.isDefaultRoom,
       focusMode: room.focusMode,
-      participantCount: room.participantCount,
+      participantCount: activeMemberCount,
       pomodoroConfig: safeParse(room.pomodoroConfig),
       tags: safeParse(room.tags),
       startedAt: room.startedAt,

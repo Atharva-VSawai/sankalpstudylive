@@ -4,7 +4,7 @@ import { ok, notFound, unauthorized, forbidden, getAuth } from "@/lib/api"
 import { joinRoom, leaveRoom, listParticipants, heartbeat, reapStale, updateParticipant } from "@/lib/presence"
 import { isGeneralStudyRoom, isUnassignedNonGeneralRoom } from "@/lib/room-access"
 import { closeSession } from "@/app/api/study/sessions/route"
-import { beginLiveRoomSession, closeActiveLiveRoomSession, entitlementToResponse } from "@/lib/entitlement"
+import { beginLiveRoomSession, canJoinLiveRoom, closeActiveLiveRoomSession, entitlementToResponse, FreeAllowanceExhaustedError } from "@/lib/entitlement"
 
 // GET /api/rooms/[id]/presence
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -73,6 +73,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!membership) return forbidden("Join this community before entering its focus room.", "NOT_MEMBER")
   }
 
+  // Presence is an independent join boundary after LiveKit token issuance.
+  // Enforce the allowance here too so it cannot be bypassed or raced.
+  const { allowed, entitlement: currentEntitlement } = await canJoinLiveRoom(ctx.userId)
+  if (!allowed) {
+    return forbidden(
+      "Your 30 minutes of free study time are over. Get a pass to continue in live rooms.",
+      "FREE_ALLOWANCE_EXHAUSTED",
+      entitlementToResponse(currentEntitlement),
+    )
+  }
+
   // ── SILENT STUDY ROOM: micOn is always false ──
   // The client may send micOn but we force it to false — rooms are silent.
   const p = joinRoom(id, {
@@ -103,7 +114,24 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       mode: "pomodoro",
     },
   })
-  const entitlement = await beginLiveRoomSession(ctx.userId, session.id, id)
+  let entitlement: Awaited<ReturnType<typeof beginLiveRoomSession>>
+  try {
+    // beginLiveRoomSession performs a second check after closing any previous
+    // session, preventing the final seconds from being bypassed by a race.
+    entitlement = await beginLiveRoomSession(ctx.userId, session.id, id)
+  } catch (error) {
+    if (!(error instanceof FreeAllowanceExhaustedError)) throw error
+    await db.studySession.update({ where: { id: session.id }, data: { endedAt: new Date() } })
+    leaveRoom(id, ctx.userId)
+    await db.roomMember.updateMany({ where: { roomId: id, userId: ctx.userId, leftAt: null }, data: { leftAt: new Date() } })
+    await db.room.update({ where: { id }, data: { participantCount: listParticipants(id).length } })
+    const current = await canJoinLiveRoom(ctx.userId)
+    return forbidden(
+      "Your 30 minutes of free study time are over. Get a pass to continue in live rooms.",
+      "FREE_ALLOWANCE_EXHAUSTED",
+      entitlementToResponse(current.entitlement),
+    )
+  }
   await db.roomMember.updateMany({ where: { roomId: id, userId: ctx.userId, leftAt: null }, data: { lastSeenAt: new Date() } })
 
   const count = listParticipants(id).length

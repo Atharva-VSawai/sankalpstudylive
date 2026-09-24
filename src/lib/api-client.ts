@@ -62,5 +62,5 @@ export const api = {
   post: <T = any>(path: string, body?: any) => request<T>(path, { method: "POST", body }),
   patch: <T = any>(path: string, body?: any) => request<T>(path, { method: "PATCH", body }),
   put: <T = any>(path: string, body?: any) => request<T>(path, { method: "PUT", body }),
-  del: <T = any>(path: string) => request<T>(path, { method: "DELETE" }),
+  del: <T = any>(path: string, body?: any) => request<T>(path, { method: "DELETE", body }),
 }

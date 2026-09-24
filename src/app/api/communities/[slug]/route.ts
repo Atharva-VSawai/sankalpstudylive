@@ -5,6 +5,7 @@ import { ok, notFound, getAuth } from "@/lib/api"
 // GET /api/communities/[slug]
 export async function GET(req: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params
+  const activeSince = new Date(Date.now() - 60_000)
   const community = await db.community.findUnique({ where: { slug } })
   if (!community) return notFound("Community not found")
 
@@ -12,7 +13,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ slug
     where: { communityId: community.id, isListed: true },
     orderBy: [{ isLive: "desc" }, { participantCount: "desc" }, { createdAt: "desc" }],
     take: 30,
-    include: { owner: { include: { profile: true } } },
+    include: {
+      owner: { include: { profile: true } },
+      _count: {
+        select: {
+          members: { where: { leftAt: null, lastSeenAt: { gt: activeSince } } },
+        },
+      },
+    },
   })
 
   // membership status if authed
@@ -34,9 +42,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ slug
       id: r.id,
       name: r.name,
       description: r.description,
-      isLive: r.isLive,
+      isLive: r.isLive && r._count.members > 0,
       isPrivate: r.isPrivate,
-      participantCount: r.participantCount,
+      participantCount: r._count.members,
       maxParticipants: r.maxParticipants,
       focusMode: r.focusMode,
       tags: safeParse(r.tags),

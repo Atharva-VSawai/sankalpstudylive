@@ -33,7 +33,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   if (data.muted === true) {
     const profile = await db.profile.findUnique({ where: { userId } })
-    postMessage(id, "system", `${profile?.displayName ?? "A participant"} was muted by the host`, true)
+    postMessage(id, "system", "System", `${profile?.displayName ?? "A participant"} was muted by the host`, true)
   }
   return ok({ member: { userId, ...data } })
 }
@@ -59,6 +59,6 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     data: { leftAt: new Date() },
   })
   const profile = await db.profile.findUnique({ where: { userId } })
-  postMessage(id, "system", `${profile?.displayName ?? "A participant"} was removed`, true)
+  postMessage(id, "system", "System", `${profile?.displayName ?? "A participant"} was removed`, true)
   return ok({ kicked: true })
 }

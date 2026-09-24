@@ -8,7 +8,7 @@ import { localDateForTimezone } from "@/lib/study"
 export async function GET(req: NextRequest) {
   const ctx = await getAuth(req)
   if (!ctx) return unauthorized()
-  const user = await db.user.findUnique({ where: { id: ctx.userId } })
+  const user = await db.user.findUnique({ where: { id: ctx.userId }, include: { profile: true } })
   const tz = user?.timezone ?? "Asia/Kolkata"
   const date = localDateForTimezone(new Date(), tz)
   const goal = await db.dailyGoal.upsert({

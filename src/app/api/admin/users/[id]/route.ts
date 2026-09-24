@@ -73,7 +73,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         id: s.id, startedAt: s.startedAt, endedAt: s.endedAt, durationMin: s.durationMin, xpEarned: s.xpEarned, mode: s.mode, roomName: s.room?.name, community: s.community?.name,
       })),
     },
-    payments: payments.map((p) => ({ id: p.id, amount: p.amount, currency: p.currency, plan: p.plan, status: p.status, provider: p.provider, providerRef: p.providerRef, createdAt: p.createdAt })),
+    payments: payments.map((p) => ({ id: p.id, amount: p.amount, currency: p.currency, plan: p.plan, status: p.status, provider: p.provider, providerRef: p.razorpayPaymentId ?? p.razorpayOrderId ?? p.razorpaySubscriptionId, createdAt: p.createdAt })),
     referrals: referrals.map((r) => ({ code: r.code, status: r.status, referredEmail: r.referredUser?.email, createdAt: r.createdAt, completedAt: r.completedAt })),
     social: { friendsCount: friendships, blocksGiven: blocksGiven, reportsMade: reportsMade, reportsAgainst: reportsAgainst },
   })

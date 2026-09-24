@@ -1,5 +1,7 @@
-@import "tailwindcss";
-@import "tw-animate-css";
+/* Resolve framework styles from this repository even when Next is launched
+ * with a parent directory as its working directory. */
+@import "../../node_modules/tailwindcss/index.css";
+@import "../../node_modules/tw-animate-css/dist/tw-animate.css";
 
 @custom-variant dark (&:is(.dark *));
 

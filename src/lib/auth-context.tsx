@@ -8,6 +8,7 @@ export type Me = {
   id: string
   email: string
   hasPassword: boolean
+  timezone?: string
   role: string
   status: string
   profile: {

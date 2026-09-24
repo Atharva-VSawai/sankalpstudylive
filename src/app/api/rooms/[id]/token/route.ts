@@ -15,7 +15,7 @@ import { isGeneralStudyRoom, isUnassignedNonGeneralRoom } from "@/lib/room-acces
 //
 // ── FREE ALLOWANCE ENFORCEMENT ──
 // The server is the source of truth for the free live-room allowance
-// (30 min / rolling 24h, global across all rooms). Before issuing a token,
+// (30 min / rolling 34h, global across all rooms). Before issuing a token,
 // the server checks the user's entitlement. If the user is free AND their
 // global remaining seconds <= 0, the token is REFUSED with
 // FREE_ALLOWANCE_EXHAUSTED — no LiveKit token is issued. This is the

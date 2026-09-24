@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
     db.payment.count({ where }),
   ])
   return ok({
-    payments: payments.map((p) => ({ id: p.id, userId: p.userId, userName: p.user.profile?.displayName ?? p.user.email, username: p.user.profile?.username, amount: p.amount, currency: p.currency, plan: p.plan, status: p.status, provider: p.provider, providerRef: p.providerRef, createdAt: p.createdAt })),
+    payments: payments.map((p) => ({ id: p.id, userId: p.userId, userName: p.user.profile?.displayName ?? p.user.email, username: p.user.profile?.username, amount: p.amount, currency: p.currency, plan: p.plan, status: p.status, provider: p.provider, providerRef: p.razorpayPaymentId ?? p.razorpayOrderId ?? p.razorpaySubscriptionId, createdAt: p.createdAt })),
     page, limit, total,
   })
 }
