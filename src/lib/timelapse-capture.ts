@@ -4,7 +4,7 @@
 // TIMELAPSE CAPTURE — cost-first, browser-side.
 // ─────────────────────────────────────────────────────────────────────────────
 // Captures sparse camera frames during a study session and compiles them into
-// a short (15–60s) 360p video LOCALLY, then hands the final compressed WebM
+// a short (1–60s) video LOCALLY, then hands the final WebM
 // blob to the upload API. We never store raw frames, never record audio, never
 // keep a long array of full-resolution frames in memory.
 //
@@ -15,14 +15,13 @@
 // (a rolling window) so memory stays bounded even for a 10-hour session.
 //
 // ── Final timelapse duration ──
-// Map study duration → final video length (15–60s):
-//   30m → 15s, 1h → 20s, 2h → 25s, 4h → 35s, 6h → 45s, 10h → 60s
+// Map study duration → final video length (1–60s):
+//   30m → 5s, 1h → 10s, 2h → 15s, 4h → 30s, 6h → 45s, 10h → 60s
 // (see timelapseDurationFor)
 //
 // ── Resolution ──
-// 640×360 (360p 16:9). Drawn from the camera stream onto a canvas, then the
-// canvas is captured via canvas.captureStream() → MediaRecorder. No audio
-// track is added.
+// The source track's actual width/height are used. Nothing in the timelapse
+// path applies the room's remote-video quality cap or a fixed 360p/bitrate cap.
 //
 // ── Reuse vs separate camera ──
 // If a LiveKit LocalVideoTrack is already publishing the user's camera, we
@@ -41,24 +40,24 @@ export type TimelapseCaptureOptions = {
   existingCameraTrack?: MediaStreamTrack | null
   // Called when the final timelapse blob is ready (on stop). The caller
   // uploads it to the /api/timelapses/[id]/complete endpoint.
-  onFinalized?: (result: { blob: Blob; durationSec: number; thumbnail: Blob | null }) => void
+  onFinalized?: (result: { blob: Blob; durationSec: number; thumbnail: Blob | null; width: number; height: number }) => void | Promise<void>
   // Called when capture fails (permission denied, unsupported, etc).
   onError?: (reason: string) => void
 }
 
-// ── Final timelapse duration mapping (15–60s) ──
+// ── Final timelapse duration mapping (1–60s) ──
 // studyDurationSeconds → final video seconds. Deterministic, monotonic,
-// clamped to [15, 60].
+// clamped to [1, 60].
 export function timelapseDurationFor(studySeconds: number): number {
   // Map key points and interpolate.
   // 30m (1800s) → 15s, 1h (3600) → 20s, 2h (7200) → 25s,
   // 4h (14400) → 35s, 6h (21600) → 45s, 10h (36000) → 60s.
   const pts: [number, number][] = [
-    [0, 15],
-    [1800, 15],
-    [3600, 20],
-    [7200, 25],
-    [14400, 35],
+    [0, 1],
+    [1800, 5],
+    [3600, 10],
+    [7200, 15],
+    [14400, 30],
     [21600, 45],
     [36000, 60],
   ]
@@ -98,8 +97,7 @@ export function isTimelapseSupported(): boolean {
     !!navigator.mediaDevices?.getUserMedia &&
     typeof MediaRecorder !== "undefined" &&
     typeof HTMLCanvasElement !== "undefined" &&
-    typeof (HTMLCanvasElement.prototype as any).captureStream === "function" &&
-    typeof ImageCapture !== "undefined" || true // ImageCapture optional; we use canvas drawImage
+    typeof (HTMLCanvasElement.prototype as any).captureStream === "function"
   )
 }
 
@@ -119,8 +117,8 @@ function pickMime(): string {
 }
 
 const MAX_FRAMES = 240 // rolling window — memory bounded even for 10h sessions
-const OUTPUT_W = 640
-const OUTPUT_H = 360
+const FALLBACK_W = 1280
+const FALLBACK_H = 720
 
 // ── TimelapseCapture: single-session capture controller. ──
 // Instantiate when the user opts in. Call stop() on room exit / unmount / error.
@@ -133,8 +131,10 @@ export class TimelapseCapture {
   private startedAt: number
   private finalized = false
   private opts: TimelapseCaptureOptions
+  private outputWidth = FALLBACK_W
+  private outputHeight = FALLBACK_H
   // Store lightweight still frames while studying. The final video is
-  // encoded after stop at the accelerated 15–60 second duration, instead of
+  // encoded after stop at the accelerated 1–60 second duration, instead of
   // recording the full real-time session.
   private frames: string[] = []
 
@@ -154,20 +154,25 @@ export class TimelapseCapture {
       // Acquire the camera stream. If an existing LiveKit track is provided,
       // clone it (so stopping our capture doesn't stop LiveKit's track).
       // Otherwise getUserMedia with VIDEO ONLY (no audio).
-      if (this.opts.existingCameraTrack) {
+      const existingSettings = this.opts.existingCameraTrack?.getSettings()
+      // The room intentionally publishes a low-resolution track to control
+      // LiveKit bandwidth. Never reuse that capped track for timelapse; ask
+      // the browser for the camera's native stream instead.
+      const existingIsHd = (existingSettings?.width ?? 0) >= 1280 && (existingSettings?.height ?? 0) >= 720
+      if (this.opts.existingCameraTrack && existingIsHd) {
         try {
           const track = this.opts.existingCameraTrack.clone()
           this.stream = new MediaStream([track])
         } catch {
           // Clone failed — fall back to getUserMedia.
           this.stream = await navigator.mediaDevices.getUserMedia({
-            video: { width: { ideal: 640 }, height: { ideal: 360 }, facingMode: "user" },
+            video: { facingMode: "user" },
             audio: false, // NO AUDIO — privacy + cost
           })
         }
       } else {
         this.stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 640 }, height: { ideal: 360 }, facingMode: "user" },
+          video: { facingMode: "user" },
           audio: false, // NO AUDIO
         })
       }
@@ -177,7 +182,11 @@ export class TimelapseCapture {
       return false
     }
 
-    // Set up a hidden <video> to draw frames from, and a canvas at 360p.
+    // Set up a hidden <video> and retain the camera track's native HD size.
+    const sourceTrack = this.stream.getVideoTracks()[0]
+    const settings = sourceTrack?.getSettings()
+    this.outputWidth = Math.max(1, Math.round(settings?.width || FALLBACK_W))
+    this.outputHeight = Math.max(1, Math.round(settings?.height || FALLBACK_H))
     this.video = document.createElement("video")
     this.video.srcObject = this.stream
     this.video.muted = true
@@ -186,8 +195,8 @@ export class TimelapseCapture {
     try { await this.video.play() } catch {}
 
     this.canvas = document.createElement("canvas")
-    this.canvas.width = OUTPUT_W
-    this.canvas.height = OUTPUT_H
+    this.canvas.width = this.outputWidth
+    this.canvas.height = this.outputHeight
     this.ctx = this.canvas.getContext("2d", { alpha: false })
 
     // Draw and buffer the first frame immediately, then sample the camera.
@@ -198,21 +207,22 @@ export class TimelapseCapture {
 
   private drawFrame() {
     if (!this.ctx || !this.video || !this.canvas) return
-    // Cover-fit the video into the 640×360 canvas (handles non-16:9 cameras).
-    const vw = this.video.videoWidth || 640
-    const vh = this.video.videoHeight || 360
-    const scale = Math.max(OUTPUT_W / vw, OUTPUT_H / vh)
+    // Cover-fit only when the browser reports a different source aspect ratio;
+    // the canvas itself remains the camera's native resolution.
+    const vw = this.video.videoWidth || this.outputWidth
+    const vh = this.video.videoHeight || this.outputHeight
+    const scale = Math.max(this.outputWidth / vw, this.outputHeight / vh)
     const dw = vw * scale
     const dh = vh * scale
-    const dx = (OUTPUT_W - dw) / 2
-    const dy = (OUTPUT_H - dh) / 2
+    const dx = (this.outputWidth - dw) / 2
+    const dy = (this.outputHeight - dh) / 2
     try {
       this.ctx.drawImage(this.video, dx, dy, dw, dh)
     } catch {}
     // JPEG/WebP stills keep memory bounded while allowing the final encoder
     // to play the captured session at accelerated speed.
     try {
-      const frame = this.canvas.toDataURL("image/webp", 0.62)
+      const frame = this.canvas.toDataURL("image/webp", 1)
       this.frames.push(frame)
       if (this.frames.length > MAX_FRAMES) this.frames.shift()
     } catch {
@@ -232,21 +242,21 @@ export class TimelapseCapture {
 
   // ── Stop capture and encode an accelerated timelapse. Safe to call once. ──
   // The output is always capped at 60 seconds, regardless of study length.
-  stop() {
-    if (this.finalized) return
+  stop(): Promise<void> {
+    if (this.finalized) return Promise.resolve()
     this.finalized = true
     if (this.frameTimer) { clearTimeout(this.frameTimer); this.frameTimer = null }
-    void this.encodeTimelapse()
+    return this.encodeTimelapse()
   }
 
   private async encodeTimelapse() {
     const frames = this.frames.slice()
-    const durationSec = Math.min(60, Math.max(15, timelapseDurationFor((Date.now() - this.startedAt) / 1000)))
+    const durationSec = Math.min(60, Math.max(1, timelapseDurationFor((Date.now() - this.startedAt) / 1000)))
     const frameRate = 10
     const outputFrameCount = Math.max(1, Math.round(durationSec * frameRate))
     const outputCanvas = document.createElement("canvas")
-    outputCanvas.width = OUTPUT_W
-    outputCanvas.height = OUTPUT_H
+    outputCanvas.width = this.outputWidth
+    outputCanvas.height = this.outputHeight
     const outputCtx = outputCanvas.getContext("2d", { alpha: false })
     if (!outputCtx || frames.length === 0) {
       this.opts.onError?.("No camera frames were captured for the timelapse.")
@@ -260,7 +270,6 @@ export class TimelapseCapture {
     try {
       recorder = new MediaRecorder(stream, {
         mimeType: pickMime(),
-        videoBitsPerSecond: 500_000,
       })
     } catch {
       this.opts.onError?.("MediaRecorder not supported for this codec")
@@ -272,28 +281,35 @@ export class TimelapseCapture {
     recorder.ondataavailable = (event) => {
       if (event.data.size > 0) chunks.push(event.data)
     }
-    recorder.onstop = () => {
-      const blob = new Blob(chunks, { type: "video/webm" })
-      let thumbnail: Blob | null = null
-      try {
-        outputCanvas.toBlob((thumb) => {
-          thumbnail = thumb
-          this.opts.onFinalized?.({ blob, durationSec, thumbnail })
-          this.cleanup()
-        }, "image/webp", 0.7)
-      } catch {
-        this.opts.onFinalized?.({ blob, durationSec, thumbnail: null })
-        this.cleanup()
+    const finalized = new Promise<void>((resolve) => {
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: "video/webm" })
+        try {
+          outputCanvas.toBlob(async (thumb) => {
+            try {
+              await this.opts.onFinalized?.({ blob, durationSec, thumbnail: thumb, width: this.outputWidth, height: this.outputHeight })
+            } finally {
+              this.cleanup()
+              resolve()
+            }
+          }, "image/webp", 0.7)
+        } catch {
+          void Promise.resolve(this.opts.onFinalized?.({ blob, durationSec, thumbnail: null, width: this.outputWidth, height: this.outputHeight })).finally(() => {
+            this.cleanup()
+            resolve()
+          })
+        }
       }
-    }
+    })
 
     recorder.start()
     for (let i = 0; i < outputFrameCount; i++) {
       const sourceIndex = Math.min(images.length - 1, Math.floor((i / outputFrameCount) * images.length))
-      outputCtx.drawImage(images[sourceIndex], 0, 0, OUTPUT_W, OUTPUT_H)
+      outputCtx.drawImage(images[sourceIndex], 0, 0, this.outputWidth, this.outputHeight)
       await new Promise<void>((resolve) => setTimeout(resolve, 1000 / frameRate))
     }
     if (recorder.state !== "inactive") recorder.stop()
+    await finalized
   }
 
   private loadImage(src: string): Promise<HTMLImageElement> {

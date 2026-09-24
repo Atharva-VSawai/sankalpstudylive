@@ -26,7 +26,7 @@ export function PaywallView() {
           <p className="mt-2 text-muted-foreground max-w-md mx-auto">
             You've used all 30 minutes of your free live study-room access.
             Choose a plan below to continue studying with unlimited room access.
-            Your free allowance resets 34 hours after it started.
+            Your free allowance resets 24 hours after it started.
           </p>
           <div className="mt-3 inline-flex items-center gap-2 rounded-lg bg-muted px-3 py-1.5 text-sm">
             <Clock className="size-4 text-muted-foreground" />

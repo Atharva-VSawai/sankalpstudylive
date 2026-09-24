@@ -7,7 +7,7 @@ import {
 import { getEntitlement } from "@/lib/entitlement"
 
 // GET /api/subscriptions — current user's subscription + free-room usage
-// Backed by the global free-allowance engine (30 min / rolling 34h).
+// Backed by the global free-allowance engine (30 min / rolling 24h).
 export async function GET(req: NextRequest) {
   const ctx = await getAuth(req)
   if (!ctx) return unauthorized()

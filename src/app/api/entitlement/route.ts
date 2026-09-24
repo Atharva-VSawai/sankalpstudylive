@@ -17,7 +17,7 @@ import { getEntitlement, entitlementToResponse } from "@/lib/entitlement"
 //   consumedFreeSeconds: number,
 //   allowanceSeconds: number,       // 1800 (30 min)
 //   windowStartedAt: ISO,
-//   windowResetsAt: ISO,            // windowStartedAt + 34h
+//   windowResetsAt: ISO,            // windowStartedAt + 24h
 //   hasActiveSession: boolean,
 //   activeSessionId: string | null,
 //   activeRoomId: string | null,

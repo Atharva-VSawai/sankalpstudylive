@@ -7,8 +7,8 @@ import { uploadTimelapseVideo, uploadTimelapseThumb, timelapseVideoPath, timelap
 // Receives the final compressed timelapse video (multipart/form-data) + an
 // optional thumbnail, uploads them to the PRIVATE Supabase Storage bucket,
 // and marks the Timelapse row as READY. The body size is capped by Vercel's
-// request limit (~4.5 MB for serverless functions); the client is expected to
-// send a 2–6 MB file. We set a runtime body size limit via the route segment
+// request limit; the client sends the original-resolution WebM. We set a
+// runtime duration limit via the route segment
 // config.
 //
 // The video is NEVER proxied through Vercel for playback — only this one-time
@@ -57,10 +57,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   let thumb: Buffer | null = null
   let videoContentType = "video/webm"
   let thumbContentType = "image/webp"
+  let width: number | null = null
+  let height: number | null = null
   try {
     const form = await req.formData()
     const videoFile = form.get("video")
     const thumbFile = form.get("thumb")
+    const widthValue = Number(form.get("width"))
+    const heightValue = Number(form.get("height"))
+    if (Number.isFinite(widthValue) && widthValue >= 1 && widthValue <= 8192) width = Math.round(widthValue)
+    if (Number.isFinite(heightValue) && heightValue >= 1 && heightValue <= 8192) height = Math.round(heightValue)
     if (videoFile && videoFile instanceof File) {
       videoContentType = videoFile.type || "video/webm"
       const ab = await videoFile.arrayBuffer()
@@ -78,9 +84,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!video) return badRequest("Video is required")
 
   // Hard cap on upload size (defense against a malicious large upload).
-  const MAX_VIDEO = 20 * 1024 * 1024 // 20 MB (target is 2–6 MB)
+  const MAX_VIDEO = 100 * 1024 * 1024 // Preserve HD source quality; cap only abusive uploads.
   const MAX_THUMB = 512 * 1024 // 512 KB (target 50–150 KB)
-  if (video.byteLength > MAX_VIDEO) return badRequest("Video too large (max 20 MB)")
+  if (video.byteLength > MAX_VIDEO) return badRequest("Video too large (max 100 MB)")
   if (thumb && thumb.byteLength > MAX_THUMB) return badRequest("Thumbnail too large (max 512 KB)")
 
   // Upload to Storage (server-side, service-role key).
@@ -101,6 +107,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         storagePath: videoPath,
         thumbnailPath: thumbPath,
         fileSizeBytes: sizeBytes,
+        ...(width && height ? { width, height } : {}),
         status: "READY",
         failureReason: null,
       },

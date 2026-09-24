@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server"
 import { db } from "@/lib/db"
-import { ok, unauthorized, badRequest, getAuth } from "@/lib/api"
+import { ok, unauthorized, getAuth } from "@/lib/api"
 import { ensureTimelapseBucket } from "@/lib/timelapse-storage"
 
 // POST /api/timelapses/create
@@ -15,29 +15,40 @@ export async function POST(req: NextRequest) {
   const ctx = await getAuth(req)
   if (!ctx) return unauthorized()
   const body = await req.json().catch(() => ({}))
-  const studySessionId = body?.studySessionId ? String(body.studySessionId) : null
+  const requestedStudySessionId = body?.studySessionId ? String(body.studySessionId) : null
   const roomId = body?.roomId ? String(body.roomId) : null
 
-  // Compute the server-authoritative study duration from the StudySession.
+  // Resolve the session only within the authenticated user's records. The
+  // browser's ID can become stale during LiveKit/presence cleanup, so it is a
+  // hint rather than a hard dependency for saving a timelapse.
+  let session = requestedStudySessionId
+    ? await db.studySession.findFirst({ where: { id: requestedStudySessionId, userId: ctx.userId } })
+    : null
+  if (!session) {
+    session = await db.studySession.findFirst({
+      where: { userId: ctx.userId, ...(roomId ? { roomId } : {}) },
+      orderBy: { startedAt: "desc" },
+    })
+  }
+
+  // Compute the server-authoritative study duration from the resolved session.
   let studyDurationSeconds = 0
-  if (studySessionId) {
-    const session = await db.studySession.findUnique({ where: { id: studySessionId } })
-    if (!session || session.userId !== ctx.userId) return badRequest("Invalid study session")
+  if (session) {
     // If the session is still active (no endedAt), use now; else use endedAt.
     const end = session.endedAt ?? new Date()
     studyDurationSeconds = Math.max(0, Math.floor((end.getTime() - session.startedAt.getTime()) / 1000))
   }
 
-  // Compute the final timelapse duration from the study duration (15–60s).
+  // Compute the final timelapse duration from the study duration (1–60s).
   // Matches timelapseDurationFor() in the client lib.
-  const timelapseDurationSeconds = Math.min(60, Math.max(15, Math.round(15 + (studyDurationSeconds / 36000) * 45)))
+  const timelapseDurationSeconds = timelapseDurationFor(studyDurationSeconds)
 
   await ensureTimelapseBucket()
 
   const timelapse = await db.timelapse.create({
     data: {
       userId: ctx.userId,
-      studySessionId,
+      studySessionId: session?.id ?? null,
       roomId,
       studyDurationSeconds,
       timelapseDurationSeconds,
@@ -48,4 +59,17 @@ export async function POST(req: NextRequest) {
   })
 
   return ok({ id: timelapse.id, status: "PROCESSING" })
+}
+
+function timelapseDurationFor(studySeconds: number): number {
+  const points: [number, number][] = [[0, 1], [1800, 5], [3600, 10], [7200, 15], [14400, 30], [21600, 45], [36000, 60]]
+  const seconds = Math.max(0, studySeconds)
+  for (let i = 1; i < points.length; i++) {
+    if (seconds <= points[i][0]) {
+      const [x0, y0] = points[i - 1]
+      const [x1, y1] = points[i]
+      return Math.round(y0 + ((seconds - x0) / (x1 - x0)) * (y1 - y0))
+    }
+  }
+  return 60
 }

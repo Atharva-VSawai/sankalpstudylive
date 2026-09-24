@@ -240,7 +240,7 @@ model StudySession {
 // STUDY TIMELAPSES — cost-first architecture.
 // ─────────────────────────────────────────────────────────────────────────────
 // The browser captures sparse camera frames during a study session, compiles
-// them into a short (15–60s) 360p video locally, and uploads ONLY the final
+// them into a short (1–60s) video at the source camera resolution locally, and uploads ONLY the final
 // compressed video to a PRIVATE Supabase Storage bucket. PostgreSQL stores
 // metadata only — never the video binary or raw frames.
 //
@@ -264,9 +264,9 @@ model Timelapse {
   storagePath            String  // e.g. timelapses/{userId}/{id}/video.webm
   thumbnailPath          String? // e.g. timelapses/{userId}/{id}/thumb.webp
   studyDurationSeconds   Int      @default(0) // server-authoritative, from StudySession
-  timelapseDurationSeconds Int    @default(15) // 15–60s
-  width                  Int      @default(640) // 360p = 640x360
-  height                 Int      @default(360)
+  timelapseDurationSeconds Int    @default(1) // 1–60s, based on study duration
+  width                  Int      @default(1280) // source camera resolution
+  height                 Int      @default(720)
   fileSizeBytes          Int      @default(0)
   status                 String   @default("PROCESSING") // PROCESSING | READY | FAILED
   visibility             String   @default("private") // private (V1) | future: public

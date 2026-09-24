@@ -43,11 +43,21 @@ export async function ensureTimelapseBucket(): Promise<{ ready: boolean; reason?
     return { ready: false, reason: "Could not access Supabase Storage. Check SUPABASE_SERVICE_ROLE_KEY." }
   }
   const exists = (data ?? []).some((b) => b.name === BUCKET)
-  if (exists) return { ready: true }
+  if (exists) {
+    // Keep an older 20 MB bucket configuration from rejecting native-HD
+    // timelapses. This is idempotent and does not change the bucket's privacy.
+    const { error: updateErr } = await supabase.storage.updateBucket(BUCKET, {
+      public: false,
+      fileSizeLimit: 100 * 1024 * 1024,
+      allowedMimeTypes: ["video/webm", "image/webp", "image/jpeg"],
+    })
+    if (updateErr) console.warn("[timelapse-storage] could not update bucket limits:", updateErr.message)
+    return { ready: true }
+  }
   // Try to create it (may fail due to RLS on storage.buckets).
   const { error: createErr } = await supabase.storage.createBucket(BUCKET, {
     public: false,
-    fileSizeLimit: 20 * 1024 * 1024,
+    fileSizeLimit: 100 * 1024 * 1024,
     allowedMimeTypes: ["video/webm", "image/webp", "image/jpeg"],
   })
   if (createErr) {
@@ -88,8 +98,8 @@ export function isStorageConfigured(): { ok: boolean; reason?: string } {
 // ── Upload the final compressed timelapse video (server-side, from a Buffer). ──
 // The browser sends the already-compressed WebM blob to the
 // /api/timelapses/[id]/complete endpoint, which forwards it here. Vercel's
-// request body size limit applies (see route config), so the file must be
-// small (2–6 MB target).
+// request body size limit applies (see route config); the server still rejects
+// abusive uploads while allowing normal HD timelapses.
 export async function uploadTimelapseVideo(
   userId: string,
   timelapseId: string,

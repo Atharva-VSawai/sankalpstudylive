@@ -8,7 +8,7 @@ import { getEntitlement } from "@/lib/entitlement"
 // Returns the user's current room-access status. Server-authoritative.
 // Used by the dashboard + room view + paywall to show status.
 //
-// Now backed by the global free-allowance engine (30 min / rolling 34h).
+// Now backed by the global free-allowance engine (30 min / rolling 24h).
 // Backward-compatible fields (roomMinutesUsed, freeAllowanceMin,
 // remainingFreeMin) are derived from the new entitlement for any code that
 // still reads them, but the canonical fields are the *Seconds / window ones.

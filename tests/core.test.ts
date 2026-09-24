@@ -10,9 +10,9 @@ import { isGeneralStudyRoom, isUnassignedNonGeneralRoom } from "../src/lib/room-
 import { joinRoom, leaveRoom, listParticipants, reapStale } from "../src/lib/presence"
 
 describe("pricing and entitlement invariants", () => {
-  test("free allowance is exactly 30 minutes and resets after 34 hours", () => {
+  test("free allowance is exactly 30 minutes and resets after 24 hours", () => {
     expect(FREE_ROOM_ALLOWANCE_SECONDS).toBe(30 * 60)
-    expect(FREE_ROOM_WINDOW_MS).toBe(34 * 60 * 60 * 1000)
+    expect(FREE_ROOM_WINDOW_MS).toBe(24 * 60 * 60 * 1000)
   })
 
   test("paid entitlements bypass the free allowance", () => {

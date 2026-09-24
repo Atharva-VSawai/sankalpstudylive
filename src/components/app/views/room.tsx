@@ -105,8 +105,8 @@ export function RoomView({ id }: { id: string }) {
 
   // ── Study Timelapse (cost-first, browser-side capture) ──
   // The user is prompted on join: "Create a study timelapse?". If they opt in,
-  // we start a TimelapseCapture that reuses the LiveKit camera track (if the
-  // camera is on) or opens a separate camera (no audio). On room exit / unmount,
+  // we start a TimelapseCapture that reuses an already-HD LiveKit camera track
+  // when safe, or opens a separate native-resolution camera (no audio). On room exit / unmount,
   // we finalize the timelapse and upload it. The upload does NOT block room
   // exit — it fires in the background.
   const [showTimelapsePrompt, setShowTimelapsePrompt] = useState(false)
@@ -155,7 +155,7 @@ export function RoomView({ id }: { id: string }) {
         setError(null)
         // 1. Request token from Sankalp backend. The server is the source of
         // truth for the free allowance — it refuses to issue a token when the
-        // global 30-min/34h allowance is exhausted. The token response also
+        // global 30-min/24h allowance is exhausted. The token response also
         // includes the server-authoritative entitlement so the client can
         // render the countdown.
         type TokenRes = {
@@ -447,7 +447,7 @@ export function RoomView({ id }: { id: string }) {
   }, [displayedFreeSeconds, entitlement, exhausted])
 
   // ── Timelapse: upload the finalized blob (background, post-exit) ──
-  const uploadTimelapse = useCallback(async (video: Blob, thumb: Blob | null) => {
+  const uploadTimelapse = useCallback(async (video: Blob, thumb: Blob | null, width: number, height: number) => {
     try {
       // 1. Create the Timelapse row (PROCESSING).
       const createRes = await api.post<{ id: string }>("/timelapses/create", {
@@ -459,31 +459,35 @@ export function RoomView({ id }: { id: string }) {
       const form = new FormData()
       form.append("video", video, "video.webm")
       if (thumb) form.append("thumb", thumb, "thumb.webp")
-      const res = await fetch(`/api/timelapses/${tlId}/complete`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${getToken()}` },
-        body: form,
-      })
-      if (!res.ok) {
-        // Parse the error so we can show a clear actionable message (e.g. the
-        // Supabase service-role key is missing, or the bucket doesn't exist).
-        const errBody = await res.json().catch(() => null)
-        const errMsg = errBody?.error?.message || "Upload failed"
-        const errCode = errBody?.error?.code || "UPLOAD_FAILED"
-        if (errCode === "STORAGE_NOT_CONFIGURED" || errCode === "BUCKET_NOT_FOUND") {
-          toast.error(errMsg, { duration: 8000 })
-        } else {
-          toast.error(errMsg)
+      form.append("width", String(width))
+      form.append("height", String(height))
+      let lastError = "Upload failed"
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const res = await fetch(`/api/timelapses/${tlId}/complete`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${getToken()}` },
+            body: form,
+          })
+          if (res.ok) {
+            toast.success("Study timelapse saved to your profile.")
+            return
+          }
+          const errBody = await res.json().catch(() => null)
+          lastError = errBody?.error?.message || `Upload failed (${res.status})`
+          // Configuration and validation errors will not improve with retries.
+          const code = errBody?.error?.code
+          if (code === "STORAGE_NOT_CONFIGURED" || code === "BUCKET_NOT_FOUND" || res.status < 500) break
+        } catch (e: any) {
+          lastError = e?.message || "Network error while uploading timelapse"
         }
-        throw new Error(errMsg)
+        await new Promise((resolve) => setTimeout(resolve, 750 * (attempt + 1)))
       }
-      toast.success("Study timelapse saved to your profile.")
+      console.error("[timelapse] upload failed:", lastError)
+      toast.error(lastError, { duration: 10000 })
     } catch (e: any) {
-      // Already toasted above if it was an API error; avoid double-toast for
-      // network errors.
-      if (!e?.message?.includes("Upload") && !e?.message?.includes("Storage") && !e?.message?.includes("bucket")) {
-        toast.error("Could not save timelapse. Please try again.")
-      }
+      console.error("[timelapse] save failed:", e)
+      toast.error(e?.message || "Could not save timelapse. Please try again.", { duration: 10000 })
     } finally {
       setTimelapseUploading(false)
     }
@@ -492,9 +496,9 @@ export function RoomView({ id }: { id: string }) {
   // ── Timelapse: start capture (called when the user clicks "Enable Timelapse") ──
   const startTimelapse = useCallback(async () => {
     setShowTimelapsePrompt(false)
-    // Reuse the LiveKit local camera track if the camera is on (avoids a
-    // second camera prompt + camera conflict). Otherwise TimelapseCapture will
-    // call getUserMedia({ video: true, audio: false }) itself.
+    // Reuse the LiveKit local camera track only when it is already HD. The
+    // room's low-res publication must not restrict the timelapse; otherwise
+    // TimelapseCapture requests a separate native-resolution video track.
     let existingTrack: MediaStreamTrack | null = null
     if (lkRoomRef.current?.localParticipant) {
       const pub = lkRoomRef.current.localParticipant.getTrackPublication(Track.Source.Camera)
@@ -509,10 +513,10 @@ export function RoomView({ id }: { id: string }) {
         toast.error(reason)
         setTimelapseRecording(false)
       },
-      onFinalized: (result) => {
+      onFinalized: async (result) => {
         // Upload the finalized blob to the server (which forwards it to
         // Supabase Storage). This runs in the background after room exit.
-        uploadTimelapse(result.blob, result.thumbnail)
+        await uploadTimelapse(result.blob, result.thumbnail, result.width, result.height)
       },
     })
     timelapseCaptureRef.current = capture
@@ -521,7 +525,7 @@ export function RoomView({ id }: { id: string }) {
   }, [uploadTimelapse])
 
   // ── Timelapse: finalize + upload (called on room exit / unmount) ──
-  const finalizeTimelapseAndUpload = useCallback(() => {
+  const finalizeTimelapseAndUpload = useCallback(async () => {
     const capture = timelapseCaptureRef.current
     if (!capture) return
     // stop() triggers onFinalized → uploadTimelapse. We clear the ref so it
@@ -529,7 +533,10 @@ export function RoomView({ id }: { id: string }) {
     timelapseCaptureRef.current = null
     setTimelapseRecording(false)
     setTimelapseUploading(true)
-    try { capture.stop() } catch {}
+    try { await capture.stop() } catch (e: any) {
+      setTimelapseUploading(false)
+      toast.error(e?.message || "Could not encode timelapse")
+    }
   }, [])
 
   // ── Timelapse: cancel prompt (Not Now) ──
@@ -548,26 +555,26 @@ export function RoomView({ id }: { id: string }) {
   }, [])
 
   // ── Leave room ──
-  const leave = useCallback(() => {
+  const leave = useCallback(async () => {
     if (cleanupStartedRef.current) return
     cleanupStartedRef.current = true
-    setLeft(true)
-    // Finalize the timelapse (if recording) and upload it in the background.
-    // This does NOT block the leave — the user exits immediately, the upload
-    // continues via the async finalizeTimelapseAndUpload call.
-    finalizeTimelapseAndUpload()
     const sessionId = sessionIdRef.current
     sessionIdRef.current = null
+    // Create the timelapse while the session row still exists. The stop route
+    // intentionally removes sub-minute sessions, so stopping first can make
+    // /timelapses/create reject a perfectly valid short recording.
+    // finalizeTimelapseAndUpload also waits for encoding + upload before this
+    // view navigates away.
+    await finalizeTimelapseAndUpload()
+    if (sessionId) await api.post("/study/sessions/" + sessionId + "/stop").catch(() => {})
+    setLeft(true)
     if (lkRoomRef.current) {
       lkRoomRef.current.disconnect()
       lkRoomRef.current = null
     }
     if (heartbeatRef.current) clearInterval(heartbeatRef.current)
     if (qualityReassertRef.current) clearInterval(qualityReassertRef.current)
-    // Keep server cleanup authoritative, but do not make the user wait for it.
-    // The presence leave endpoint also closes the server-authoritative active
-    // study session and removes this participant from the room count.
-    if (sessionId) api.post("/study/sessions/" + sessionId + "/stop").catch(() => {})
+    // The presence leave endpoint removes this participant from the room count.
     api.post("/rooms/" + id + "/presence", { action: "leave" }).catch(() => {})
     qc.invalidateQueries({ queryKey: ["rooms"] })
     navigate("/rooms")
@@ -1461,7 +1468,7 @@ function PomodoroSettings({ config, onSave, onClose }: { config: PomodoroConfig;
 function playChime() { try { const ctx = new (window.AudioContext || (window as any).webkitAudioContext)(); const o = ctx.createOscillator(); const g = ctx.createGain(); o.connect(g); g.connect(ctx.destination); o.frequency.value = 660; o.type = "sine"; g.gain.setValueAtTime(0.0001, ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.15, ctx.currentTime + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.8); o.start(); o.stop(ctx.currentTime + 0.8) } catch {} }
 
 // ── 5-minute free-allowance warning modal ──
-// Shown ONCE per 34h window when the countdown crosses 5:00. The server marks
+// Shown ONCE per 24h window when the countdown crosses 5:00. The server marks
 // warningShown so it doesn't reappear on refresh/rejoin. Closing it doesn't
 // re-trigger it (warningShownRef prevents local re-show too).
 function FreeWarningModal({ remaining, resetsAt, onClose, onUpgrade }: {
@@ -1484,7 +1491,7 @@ function FreeWarningModal({ remaining, resetsAt, onClose, onUpgrade }: {
         <h3 className="text-lg font-bold">5 minutes of free study time remaining today</h3>
         <p className="text-sm text-muted-foreground">
           Continue studying with a paid plan. Your free allowance resets in{" "}
-          {resetsAt ? new Date(resetsAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "34 hours"}.
+            {resetsAt ? new Date(resetsAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "24 hours"}.
         </p>
         <div className="rounded-lg bg-muted px-3 py-2 text-center">
           <span className="font-mono tabular-nums text-2xl font-bold text-amber-600 dark:text-amber-400">{fmt(remaining)}</span>
@@ -1540,7 +1547,7 @@ function TimelapsePromptModal({ onEnable, onDismiss }: {
 // Shown when the server reports the free allowance is exhausted (00:00). The
 // room has already been closed by the server (heartbeat returned exhausted=true
 // or the token request was refused). The user must upgrade or wait for the
-// 34h reset. This overlay blocks the room view until dismissed via navigation.
+// 24h reset. This overlay blocks the room view until dismissed via navigation.
 function ExhaustedOverlay({ resetsAt, onPlan, onSolo }: {
   resetsAt?: string
   onPlan: () => void

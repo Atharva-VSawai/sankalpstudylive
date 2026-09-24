@@ -2,6 +2,15 @@
 
 ## 2026-09-25
 
+- Fixed study timelapse saving on room exit by waiting for encoding and the authenticated upload before navigating away; the server session is stopped first so timelapse duration remains authoritative.
+- Removed the timelapse-only 360p/500 kbps restriction. Capture now preserves the camera track's native dimensions and records with the browser's native MediaRecorder quality, storing the dimensions with the completed row.
+- Updated timelapse duration mapping to 1–60 seconds based on server-computed study duration and increased the private storage/upload safety ceiling for HD files.
+- Added three-attempt upload retry handling and exposed the actual server/storage error in the UI instead of masking it with a generic save failure.
+- Fixed the one-minute "Invalid study session" failure by creating/uploading the timelapse before closing the study session; sub-minute session cleanup can otherwise delete the source row first.
+- Made timelapse creation resilient to stale client session IDs by resolving the latest authenticated user's room session server-side; invalid client references no longer block saving.
+- Changed the global free live-room allowance reset from 34 hours to 24 hours. Token issuance, presence joining, and the post-close recheck remain server-enforced; exhausted users are blocked and directed to purchase a pass.
+- Fixed free-time accounting on reload/leave: clean server closes now charge the full session duration, while heartbeat-loss recovery still uses the last-heartbeat timeout cap. This prevents users from resetting the 30-minute allowance by closing or reloading the site.
+
 - Fixed Tailwind v4 CSS resolution so the app no longer depends on a parent `Desktop` working directory; global styles now reference the repository's installed Tailwind and animation CSS files.
 - Verified `bun run dev`: `/` returned HTTP 200 and `/api/health` returned HTTP 200 without compilation errors.
 - Verified `bun run build`: Prisma generation, production compilation, TypeScript, static pages, and all routes completed successfully.
