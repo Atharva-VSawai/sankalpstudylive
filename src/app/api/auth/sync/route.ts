@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server"
 import { db } from "@/lib/db"
-import { ok, unauthorized, getAuth, badRequest } from "@/lib/api"
-import { hashPassword } from "@/lib/auth"
+import { ok, unauthorized, getSupabaseUser, badRequest } from "@/lib/api"
 
 // POST /api/auth/sync
 // Called by the frontend after Supabase Auth signup/login to ensure
@@ -10,17 +9,20 @@ import { hashPassword } from "@/lib/auth"
 //
 // Body: { email: string, supabaseId?: string }
 export async function POST(req: NextRequest) {
-  const ctx = await getAuth(req)
-  if (!ctx) return unauthorized()
+  const supabaseUser = await getSupabaseUser(req)
+  if (!supabaseUser) return unauthorized()
 
   const body = await req.json().catch(() => ({}))
-  const email = String(body?.email || ctx.user?.email || "").trim().toLowerCase()
+  // The verified Supabase identity is authoritative. Never trust an email or
+  // Supabase ID supplied by the browser over the token we just verified.
+  const email = String(supabaseUser.email || body?.email || "").trim().toLowerCase()
+  const supabaseId = supabaseUser.id
   if (!email) return badRequest("Email required")
 
   // Check if user already exists
   let user = await db.user.findFirst({
     where: {
-      OR: [{ email }, { googleSub: body?.supabaseId }]
+      OR: [{ email }, { googleSub: supabaseId }]
     },
     include: { profile: true }
   })
@@ -37,7 +39,7 @@ export async function POST(req: NextRequest) {
     user = await db.user.create({
       data: {
         email,
-        googleSub: body?.supabaseId || null,
+        googleSub: supabaseId,
         emailVerifiedAt: new Date(),
         role: "user",
         status: "active",
@@ -59,24 +61,31 @@ export async function POST(req: NextRequest) {
     await db.referral.create({
       data: { code: `${username}-${user.id.slice(0, 4)}`, referrerId: user.id, status: "pending" },
     })
-  } else if (!user.profile) {
-    // User exists but no profile — create one
-    const baseUsername = email.split("@")[0].replace(/[^a-z0-9_]/gi, "").slice(0, 18) || "studenter"
-    let username = baseUsername
-    let n = 1
-    while (await db.profile.findUnique({ where: { username } })) {
-      username = `${baseUsername}${n++}`
+  } else {
+    // Link pre-existing email/password rows to the verified Supabase identity
+    // so subsequent JWT lookups are stable even if the email changes later.
+    if (user.googleSub !== supabaseId) {
+      await db.user.update({ where: { id: user.id }, data: { googleSub: supabaseId } })
     }
-    await db.profile.create({
-      data: {
-        userId: user.id,
-        username,
-        displayName: baseUsername,
-        onboardingComplete: false,
-      },
-    })
-    await db.streak.create({ data: { userId: user.id } }).catch(() => {})
-    await db.subscription.create({ data: { userId: user.id, plan: "free" } }).catch(() => {})
+    if (!user.profile) {
+      // User exists but no profile — create one
+      const baseUsername = email.split("@")[0].replace(/[^a-z0-9_]/gi, "").slice(0, 18) || "studenter"
+      let username = baseUsername
+      let n = 1
+      while (await db.profile.findUnique({ where: { username } })) {
+        username = `${baseUsername}${n++}`
+      }
+      await db.profile.create({
+        data: {
+          userId: user.id,
+          username,
+          displayName: baseUsername,
+          onboardingComplete: false,
+        },
+      })
+      await db.streak.create({ data: { userId: user.id } }).catch(() => {})
+      await db.subscription.create({ data: { userId: user.id, plan: "free" } }).catch(() => {})
+    }
   }
 
   // Update last login

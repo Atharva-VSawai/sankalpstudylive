@@ -376,3 +376,15 @@ Stage Summary:
 - All existing Logo usages (landing, auth, onboarding, app-shell loading, chrome header) now use BrandLogo via the re-export — no call-site changes needed.
 - Favicon + apple-touch-icon + shortcut icon + OpenGraph/Twitter preview images all point to the optimized /logo.svg (brand gradient mark). Theme-color meta tag uses brand-emerald (light) / brand-saffron (dark).
 - The user's uploaded logo file did not arrive on the server; the branding was implemented from the brand colors + mark confirmed via VLM inspection of the pasted images. When the user uploads the actual PNG/WebP logo files, they can drop them in /public/branding/ and the BrandLogo component can switch to <img>-based variants using resolvedTheme — the architecture supports this without a rewrite.
+
+---
+Task ID: AUTH-VERCEL-013
+Agent: Codex
+Task: Diagnose production Supabase sign-in failure on sankalpstudylive.in.
+
+Work Log:
+- Verified the deployed `POST /api/auth/login`, `/api/auth/signup`, and public database-backed routes return HTTP 500, while the same invalid login locally returns the expected HTTP 401. This isolates a Vercel database/runtime configuration failure in addition to the auth-flow issue.
+- Updated Supabase auth synchronization so `/api/auth/sync` verifies the Supabase JWT directly and can create the local User/Profile/Streak/Subscription rows for a first-time Supabase user.
+- Made the verified Supabase token identity authoritative instead of trusting browser-supplied email or Supabase IDs.
+- When Supabase is configured, email login/signup now stays on Supabase Auth and surfaces its real error; it no longer falls through to the local Postgres login route and masks the root cause.
+- `bun run lint` passes. After stopping the existing localhost process that held Prisma's Windows query engine file, `bun run build` passes; Next reports only the pre-existing workspace-root and metadataBase warnings.

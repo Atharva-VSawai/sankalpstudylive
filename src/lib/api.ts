@@ -9,6 +9,26 @@ export type AuthContext = {
   user?: { id: string; email: string; role: string; status: string }
 }
 
+/**
+ * Verify a Supabase access token without requiring a matching local User row.
+ * This is needed by /api/auth/sync, which creates that row for first-time
+ * Supabase users.
+ */
+export async function getSupabaseUser(req: NextRequest) {
+  const auth = req.headers.get("authorization") || ""
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : null
+  if (!token || token.split(".").length !== 3) return null
+
+  try {
+    const supabase = createServerClient()
+    const { data, error } = await supabase.auth.getUser(token)
+    if (error || !data?.user?.id || !data.user.email) return null
+    return data.user
+  } catch {
+    return null
+  }
+}
+
 // Reads the Supabase JWT OR the Sankalp signed session token from the
 // Authorization header (or `sankalp_session` cookie) and verifies it.
 // Returns the authenticated user context, or null if unauthenticated.
@@ -48,18 +68,16 @@ export async function getAuth(req: NextRequest): Promise<AuthContext | null> {
 
   // ── 2. Fall back to Supabase JWT verification ──
   try {
-    // Verify the JWT with Supabase
-    const supabase = createServerClient()
-    const { data, error } = await supabase.auth.getUser(token)
-    if (error || !data?.user) return null
+    const supabaseUser = await getSupabaseUser(req)
+    if (!supabaseUser) return null
 
     // Look up the user in our database by email (Supabase auth user ID maps to our User)
     // We match by email since Supabase Auth manages the identity
     const user = await db.user.findFirst({
       where: {
         OR: [
-          { email: data.user.email! },
-          { googleSub: data.user.id }
+          { email: supabaseUser.email! },
+          { googleSub: supabaseUser.id }
         ]
       },
       select: { id: true, email: true, role: true, status: true }

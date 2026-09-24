@@ -153,21 +153,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Sankalp signed session token. This makes the app work with OR without
   // Supabase configured — no code changes needed to switch.
   const login = useCallback(async (email: string, password: string) => {
-    // Only try Supabase if it's configured. Otherwise go straight to the
-    // Sankalp local login — avoids a pointless round-trip + error toast.
     if (isSupabaseConfigured) {
-      try {
-        const { error } = await supabase.auth.signInWithPassword({ email, password })
-        if (!error) {
-          // The auth state change listener will fetchMe automatically
-          // But also do it immediately for UI responsiveness
-          await fetchMe()
-          return
-        }
-        // Fall through to local login on any Supabase error
-      } catch {
-        // Fall through to local login on Supabase client failure
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+      if (error || !data.session || !data.user) {
+        throw new Error(error?.message || "Invalid email or password")
       }
+      setToken(data.session.access_token)
+      await api.post("/auth/sync", { email: data.user.email, supabaseId: data.user.id })
+      await fetchMe()
+      return
     }
 
     // ── Sankalp local-login fallback ──
@@ -190,29 +184,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // app work with OR without Supabase configured.
   const signup = useCallback(async (email: string, password: string) => {
     if (isSupabaseConfigured) {
-      try {
-        const { error } = await supabase.auth.signUp({ email, password })
-        if (!error) {
-          // After signup, Supabase may auto-sign-in (if email confirmation is
-          // disabled) or require email confirmation (if enabled).
-          const { data } = await supabase.auth.getSession()
-          if (data?.session?.access_token) {
-            setToken(data.session.access_token)
-            // Sync profile with our backend
-            try {
-              await api.post("/auth/sync", { email })
-            } catch {}
-            await fetchMe()
-            return
-          }
-          // Email confirmation required — fall through to local signup so the
-          // user can use the app immediately without waiting for email. The
-          // Supabase account still exists and can be used after confirmation.
-        }
-        // Fall through to local signup on any Supabase error
-      } catch {
-        // Fall through to local signup on Supabase client failure
+      const { data, error } = await supabase.auth.signUp({ email, password })
+      if (error) throw new Error(error.message)
+      if (!data.session || !data.user) {
+        throw new Error("Account created. Check your email to confirm your address, then log in.")
       }
+      setToken(data.session.access_token)
+      await api.post("/auth/sync", { email: data.user.email, supabaseId: data.user.id })
+      await fetchMe()
+      return
     }
 
     // ── Sankalp local-signup fallback ──
