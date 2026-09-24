@@ -46,7 +46,7 @@ type AuthState = {
   signup: (email: string, password: string) => Promise<void>
   loginWithGoogle: (next?: string) => Promise<void>
   logout: () => void
-  refresh: () => Promise<void>
+  refresh: (updatedMe?: Me) => Promise<void>
 }
 
 const SUPABASE_AUTH_TIMEOUT_MS = 8000
@@ -73,6 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<Me | null>(null)
   const [loading, setLoading] = useState(true)
   const authActionInFlight = useRef(false)
+  const authInitialized = useRef(false)
   // Memoize the Supabase client so it is created ONCE per provider mount.
   // Previously this was called in the render body, creating a new client on
   // every render → fetchMe callback was recreated every render → the auth
@@ -82,7 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const supabase = useMemo(() => createBrowserClient(), [])
 
   // ── Fetch user profile from our backend API ──
-  const fetchMe = useCallback(async () => {
+  const fetchMe = useCallback(async (): Promise<Me | null> => {
     try {
       const { data: session } = await withAuthTimeout(supabase.auth.getSession())
       if (session?.session?.access_token) {
@@ -92,6 +93,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           const data = await api.get<Me>("/auth/me")
           setMe(data)
+          return data
         } catch (e) {
           // If our API returns 401, the Supabase-auth'd user may not exist in
           // our DB yet (first Google OAuth login, or first Supabase email
@@ -105,7 +107,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                   supabaseId: userData.user.id,
                 })
                 setMe(synced)
-                return
+                return synced
               }
             } catch {
               setToken(null)
@@ -125,6 +127,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           try {
             const data = await api.get<Me>("/auth/me")
             setMe(data)
+            return data
           } catch (e) {
             if (e instanceof ApiError && e.status === 401) {
               setToken(null)
@@ -135,10 +138,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         } else {
           setMe(null)
+          return null
         }
       }
+      return null
     } catch {
       setMe(null)
+      return null
     } finally {
       setLoading(false)
     }
@@ -147,12 +153,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true
 
-    const restoreOAuthRoute = () => {
+    const restoreOAuthRoute = (currentMe: Me | null) => {
       if (typeof window === "undefined") return
       const next = localStorage.getItem("sankalp_oauth_next")
       if (!next) return
       localStorage.removeItem("sankalp_oauth_next")
-      if (next.startsWith("/")) window.location.hash = `#${next}`
+      // Google can be used from either Log in or Sign up. The first OAuth
+      // login has a synced account but an incomplete profile, so it must go
+      // straight to the same details screen instead of briefly landing on
+      // the dashboard and requiring another sign-in/room navigation.
+      const target = currentMe && !currentMe.profile.onboardingComplete ? "/onboarding" : next
+      if (target.startsWith("/")) window.location.hash = `#${target}`
     }
 
     const initializeAuth = async () => {
@@ -169,19 +180,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         }
       }
-      await fetchMe()
-      if (active) restoreOAuthRoute()
+      const currentMe = await fetchMe()
+      if (active) {
+        authInitialized.current = true
+        restoreOAuthRoute(currentMe)
+      }
     }
 
     void initializeAuth()
 
     // Listen for auth state changes
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+      if ((event === "SIGNED_IN" || event === "TOKEN_REFRESHED") && authInitialized.current) {
         if (session?.access_token && !authActionInFlight.current) {
           setToken(session.access_token)
-          await fetchMe()
-          restoreOAuthRoute()
+          const currentMe = await fetchMe()
+          restoreOAuthRoute(currentMe)
         }
       } else if (event === "SIGNED_OUT") {
         setToken(null)
@@ -314,7 +328,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setMe(null)
   }, [supabase])
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (updatedMe?: Me) => {
+    if (updatedMe) {
+      setMe(updatedMe)
+      return
+    }
     await fetchMe()
   }, [fetchMe])
 

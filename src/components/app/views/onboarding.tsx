@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { useAuth } from "@/lib/auth-context"
+import { Me, useAuth } from "@/lib/auth-context"
 import { useRouter } from "@/lib/router"
 import { api } from "@/lib/api-client"
 import { Button } from "@/components/ui/button"
@@ -40,14 +40,18 @@ export function OnboardingView() {
   const finish = async () => {
     setBusy(true)
     try {
-      await api.patch("/onboarding", {
+      const updatedMe = await api.patch<Me>("/onboarding", {
         displayName,
         username,
         examGoal,
         targetYear: targetYear === "" ? null : Number(targetYear),
         studyHoursGoal: Math.round(hoursPerDay * 60),
       })
-      await refresh()
+      // The endpoint returns the authoritative completed profile. Apply it
+      // immediately instead of making a second /auth/me request; this avoids
+      // the stale onboarding state that previously made users open a room
+      // before the welcome/dashboard transition completed.
+      await refresh(updatedMe)
       toast.success("You're all set! Welcome to Sankalp.")
       navigate("/dashboard", { replace: true })
     } catch (err) {

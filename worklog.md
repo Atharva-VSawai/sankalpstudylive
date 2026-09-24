@@ -2,6 +2,14 @@
 
 ## 2026-09-25
 
+- Fixed Google OAuth callback routing for both Log in and Sign up: first-time
+  Google users now go directly to onboarding after the Supabase account is
+  synced, while completed users still return to their original destination.
+- Fixed slow/stale onboarding completion by applying the authoritative profile
+  returned by `PATCH /api/onboarding` directly to auth state instead of issuing
+  a second `/auth/me` request. This removes the need to open a room before the
+  welcome/dashboard transition is recognized.
+
 - Fixed study timelapse saving on room exit by waiting for encoding and the authenticated upload before navigating away; the server session is stopped first so timelapse duration remains authoritative.
 - Removed the timelapse-only 360p/500 kbps restriction. Capture now preserves the camera track's native dimensions and records with the browser's native MediaRecorder quality, storing the dimensions with the completed row.
 - Updated timelapse duration mapping to 1–60 seconds based on server-computed study duration and increased the private storage/upload safety ceiling for HD files.
