@@ -440,3 +440,55 @@ Work Log:
 - Added Supabase recovery-email delivery for forgotten passwords.
 - Hid account deletion from admin Settings and added a server-side `ADMIN_PROTECTED` guard so admin accounts cannot self-delete through the API.
 - Validation: `bun run lint` and `bun run build` pass; build retains only existing workspace-root and metadataBase warnings.
+
+---
+Task ID: AUTH-ROOM-017
+Agent: Codex
+Task: Fix first-time Google callback and live-room timelapse logout.
+
+Work Log:
+- Switched the browser Supabase client to PKCE and exchange the callback code before the first `/api/auth/me` request, avoiding the hash-router collision that made the first Google sign-in appear to do nothing.
+- Preserved the requested post-OAuth route through the callback.
+- Disabled inactivity auto-logout while the user is inside an individual live room, including long timelapse sessions.
+- Preserved the active study-session ID for timelapse finalization so background upload does not lose its session reference.
+- Validation: `bun run lint` passes.
+
+---
+Task ID: TIMELAPSE-018
+Agent: Codex
+Task: Correct timelapse duration and playback speed.
+
+Work Log:
+- Replaced real-time canvas recording with bounded still-frame sampling during the study session.
+- On stop, the sampled frames are encoded into an accelerated WebM whose duration is calculated server/client-side and clamped to 15–60 seconds.
+- A five-minute study session now produces an accelerated short video instead of a five-minute slow-motion recording.
+- Validation: `bun run lint` and `bun run build` pass.
+
+---
+Task ID: TIMELAPSE-019
+Agent: Codex
+Task: Repair timelapse playback window.
+
+Work Log:
+- Reworked the playback overlay with an accessible modal surface, explicit close control, responsive sizing, inline video playback, loading state, and playback error/retry handling.
+- Added an explicit playback attempt after the signed URL loads while retaining native controls for browsers that block asynchronous autoplay.
+
+---
+Task ID: ACCOUNT-SECURITY-020
+Agent: Codex
+Task: Do not request passwords from OAuth-only users during account deletion.
+
+Work Log:
+- Added a server-derived `hasPassword` flag to the authenticated user response.
+- Account deletion now asks for a password only when the account actually has a password hash; Google-only users confirm with `DELETE` without entering a nonexistent password.
+- The server-side password verification rule remains authoritative.
+
+---
+Task ID: PERFORMANCE-021
+Agent: Codex
+Task: Reduce repeated page loading and profile perceived latency.
+
+Work Log:
+- Increased React Query cache retention for stable app data to avoid refetching on every hash-route navigation; live views keep their own shorter refresh intervals.
+- Profile now renders immediately from the already-loaded `/api/auth/me` profile while the richer `/api/profile` response loads memberships and full badge data in parallel.
+- Disabled reconnect-triggered refetches for this low-bandwidth deployment profile.

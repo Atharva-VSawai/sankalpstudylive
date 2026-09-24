@@ -24,7 +24,10 @@ export function ProfileView() {
   const { data: allBadges } = useQuery({ queryKey: ["badges"], queryFn: () => api.get<{ badges: any[] }>("/study/badges") })
   const { data: ref } = useQuery({ queryKey: ["referrals"], queryFn: () => api.get<any>("/referrals") })
 
-  const p = profile?.profile
+  // /auth/me already provides the core profile. Render from it immediately
+  // while the richer profile query loads memberships and full badge data.
+  // This removes the second-request blank screen on every profile visit.
+  const p = profile?.profile ?? me?.profile
   if (!p) return <div className="p-8 text-center text-muted-foreground">Loading…</div>
   const examMeta = p.examGoal ? EXAM_META[p.examGoal] : null
   const earned = p.badges ?? []

@@ -1,11 +1,11 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api-client"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Film, Play, Trash2, Loader2, Clock } from "lucide-react"
+import { Film, Play, Trash2, Loader2, AlertCircle, X } from "lucide-react"
 import { toast } from "sonner"
 
 // ── Profile → Timelapses section ──
@@ -30,6 +30,9 @@ function fmtStudyDuration(s: number): string {
 export function ProfileTimelapses() {
   const qc = useQueryClient()
   const [playing, setPlaying] = useState<{ id: string; url: string } | null>(null)
+  const [playerReady, setPlayerReady] = useState(false)
+  const [playerError, setPlayerError] = useState(false)
+  const videoRef = useRef<HTMLVideoElement>(null)
 
   // Load metadata only (no video). Paginated.
   const { data, isLoading } = useQuery({
@@ -41,9 +44,22 @@ export function ProfileTimelapses() {
   // Request a signed URL for one timelapse on demand.
   const playMut = useMutation({
     mutationFn: (id: string) => api.get<{ url: string }>(`/timelapses/${id}/signed-url`),
-    onSuccess: (res, id) => setPlaying({ id, url: res.url }),
+    onSuccess: (res, id) => {
+      setPlayerReady(false)
+      setPlayerError(false)
+      setPlaying({ id, url: res.url })
+    },
     onError: (e: any) => toast.error(e?.message ?? "Could not load timelapse"),
   })
+
+  useEffect(() => {
+    if (!playing || !videoRef.current) return
+    // The signed URL arrives asynchronously, so browser autoplay policies may
+    // reject autoPlay even though the user clicked the thumbnail. Try to start
+    // playback explicitly, while keeping the native controls as a fallback.
+    const video = videoRef.current
+    void video.play().catch(() => {})
+  }, [playing])
 
   const deleteMut = useMutation({
     mutationFn: (id: string) => api.del(`/timelapses/${id}`),
@@ -138,17 +154,42 @@ export function ProfileTimelapses() {
 
         {/* Playback modal */}
         {playing && (
-          <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={() => setPlaying(null)}>
-            <div className="max-w-2xl w-full" onClick={(e) => e.stopPropagation()}>
+          <div className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Timelapse player" onClick={() => setPlaying(null)}>
+            <div className="relative max-w-4xl w-full rounded-xl border border-white/15 bg-background/95 p-3 sm:p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                onClick={() => setPlaying(null)}
+                className="absolute right-2 top-2 z-10 size-8 rounded-full bg-black/70 text-white flex items-center justify-center hover:bg-black"
+                aria-label="Close timelapse player"
+              >
+                <X className="size-4" />
+              </button>
               <video
+                ref={videoRef}
                 src={playing.url}
                 controls
-                autoPlay
-                className="w-full rounded-lg bg-black"
-                style={{ maxHeight: "70vh" }}
+                playsInline
+                preload="metadata"
+                onLoadedData={() => setPlayerReady(true)}
+                onError={() => setPlayerError(true)}
+                className="w-full max-h-[75vh] rounded-lg bg-black object-contain"
               />
-              <div className="mt-2 flex justify-between items-center">
-                <span className="text-xs text-muted-foreground">This signed URL expires in 5 minutes.</span>
+              {!playerReady && !playerError && (
+                <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 flex items-center justify-center gap-2 text-sm text-white pointer-events-none">
+                  <Loader2 className="size-5 animate-spin" /> Loading timelapse…
+                </div>
+              )}
+              {playerError && (
+                <div className="absolute inset-x-5 top-1/2 -translate-y-1/2 rounded-lg bg-black/80 p-4 text-center text-white">
+                  <AlertCircle className="size-6 mx-auto mb-2 text-red-300" />
+                  <p className="text-sm">This video could not be played.</p>
+                  <Button variant="outline" size="sm" className="mt-3" onClick={() => playMut.mutate(playing.id)}>
+                    Try again
+                  </Button>
+                </div>
+              )}
+              <div className="mt-3 flex justify-between items-center gap-3">
+                <span className="text-xs text-muted-foreground">Timelapses are private. This playback link expires in 5 minutes.</span>
                 <Button variant="outline" size="sm" onClick={() => setPlaying(null)}>Close</Button>
               </div>
             </div>

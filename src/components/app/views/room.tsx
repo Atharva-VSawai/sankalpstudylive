@@ -113,6 +113,7 @@ export function RoomView({ id }: { id: string }) {
   const timelapseCaptureRef = useRef<TimelapseCapture | null>(null)
   const timelapsePromptShownRef = useRef(false)
   const roomEnteredAtRefTimelapse = useRef<number>(0)
+  const timelapseStudySessionIdRef = useRef<string | null>(null)
 
   // ── Pomodoro state ──
   const { data: pomoData } = useQuery({
@@ -152,6 +153,7 @@ export function RoomView({ id }: { id: string }) {
         // it as the active live-room session. We use that sessionId for the
         // stop-on-leave flow. No separate /study/sessions call is needed.
         sessionIdRef.current = tokenRes.entitlement?.activeSessionId ?? null
+        timelapseStudySessionIdRef.current = sessionIdRef.current
 
         // Seed the entitlement + local countdown from the SERVER value.
         setEntitlement(tokenRes.entitlement)
@@ -412,7 +414,7 @@ export function RoomView({ id }: { id: string }) {
     try {
       // 1. Create the Timelapse row (PROCESSING).
       const createRes = await api.post<{ id: string }>("/timelapses/create", {
-        studySessionId: sessionIdRef.current,
+        studySessionId: timelapseStudySessionIdRef.current,
         roomId: id,
       })
       const tlId = createRes.id

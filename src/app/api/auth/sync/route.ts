@@ -107,6 +107,7 @@ export async function POST(req: NextRequest) {
   return ok({
     id: fullUser!.id,
     email: fullUser!.email,
+    hasPassword: Boolean(fullUser!.passwordHash),
     role: fullUser!.role,
     status: fullUser!.status,
     profile: fullUser!.profile,

@@ -129,13 +129,14 @@ export class TimelapseCapture {
   private video: HTMLVideoElement | null = null
   private canvas: HTMLCanvasElement | null = null
   private ctx: CanvasRenderingContext2D | null = null
-  private recorder: MediaRecorder | null = null
-  private chunks: Blob[] = []
   private frameTimer: any = null
   private startedAt: number
   private finalized = false
   private opts: TimelapseCaptureOptions
-  private reusedTrack = false
+  // Store lightweight still frames while studying. The final video is
+  // encoded after stop at the accelerated 15–60 second duration, instead of
+  // recording the full real-time session.
+  private frames: string[] = []
 
   constructor(opts: TimelapseCaptureOptions) {
     this.opts = opts
@@ -157,7 +158,6 @@ export class TimelapseCapture {
         try {
           const track = this.opts.existingCameraTrack.clone()
           this.stream = new MediaStream([track])
-          this.reusedTrack = true
         } catch {
           // Clone failed — fall back to getUserMedia.
           this.stream = await navigator.mediaDevices.getUserMedia({
@@ -190,28 +190,7 @@ export class TimelapseCapture {
     this.canvas.height = OUTPUT_H
     this.ctx = this.canvas.getContext("2d", { alpha: false })
 
-    // ── Start the MediaRecorder on a canvas.captureStream() ──
-    // We use a fixed 10 fps capture stream; the recorder runs continuously and
-    // we draw a new frame onto the canvas at the adaptive interval. The
-    // recorder thus produces a smooth short video from sparse frames.
-    const canvasStream = this.canvas.captureStream(10) // 10 fps max
-    try {
-      this.recorder = new MediaRecorder(canvasStream, {
-        mimeType: pickMime(),
-        videoBitsPerSecond: 500_000, // ~500 kbps target — small file, 360p is fine
-      })
-    } catch {
-      this.opts.onError?.("MediaRecorder not supported for this codec")
-      this.cleanup()
-      return false
-    }
-    this.recorder.ondataavailable = (e) => {
-      if (e.data && e.data.size > 0) this.chunks.push(e.data)
-    }
-    this.recorder.onstop = () => this.finalize()
-    this.recorder.start()
-
-    // Draw the first frame immediately, then start the adaptive loop.
+    // Draw and buffer the first frame immediately, then sample the camera.
     this.drawFrame()
     this.scheduleNextFrame()
     return true
@@ -230,6 +209,15 @@ export class TimelapseCapture {
     try {
       this.ctx.drawImage(this.video, dx, dy, dw, dh)
     } catch {}
+    // JPEG/WebP stills keep memory bounded while allowing the final encoder
+    // to play the captured session at accelerated speed.
+    try {
+      const frame = this.canvas.toDataURL("image/webp", 0.62)
+      this.frames.push(frame)
+      if (this.frames.length > MAX_FRAMES) this.frames.shift()
+    } catch {
+      // A missing still must not interrupt the live study session.
+    }
   }
 
   private scheduleNextFrame() {
@@ -242,42 +230,79 @@ export class TimelapseCapture {
     }, interval)
   }
 
-  // ── Stop capture and finalize the timelapse. Safe to call once. ──
-  // After this, onFinalized fires with the blob + thumbnail.
+  // ── Stop capture and encode an accelerated timelapse. Safe to call once. ──
+  // The output is always capped at 60 seconds, regardless of study length.
   stop() {
     if (this.finalized) return
     this.finalized = true
     if (this.frameTimer) { clearTimeout(this.frameTimer); this.frameTimer = null }
-    if (this.recorder && this.recorder.state !== "inactive") {
-      try { this.recorder.stop() } catch {}
-    }
-    // The recorder.onstop handler calls finalize() which calls onFinalized.
+    void this.encodeTimelapse()
   }
 
-  private finalize() {
-    if (!this.canvas) return
-    const blob = new Blob(this.chunks, { type: "video/webm" })
-    // Generate one thumbnail (WebP if supported, else JPEG) from the last frame.
-    let thumb: Blob | null = null
-    try {
-      const type = this.canvas.toDataURL("image/webp", 0.7)?.startsWith("data:image/webp")
-        ? "image/webp"
-        : "image/jpeg"
-      // toBlob is async-ish but synchronous in most browsers; use a Promise.
-      this.canvas.toBlob(
-        (b) => {
-          thumb = b
-          this.opts.onFinalized?.({ blob, durationSec: timelapseDurationFor((Date.now() - this.startedAt) / 1000), thumbnail: thumb })
-          this.cleanup()
-        },
-        type,
-        0.7
-      )
-    } catch {
-      // Fallback: finalize without a thumbnail.
-      this.opts.onFinalized?.({ blob, durationSec: timelapseDurationFor((Date.now() - this.startedAt) / 1000), thumbnail: null })
+  private async encodeTimelapse() {
+    const frames = this.frames.slice()
+    const durationSec = Math.min(60, Math.max(15, timelapseDurationFor((Date.now() - this.startedAt) / 1000)))
+    const frameRate = 10
+    const outputFrameCount = Math.max(1, Math.round(durationSec * frameRate))
+    const outputCanvas = document.createElement("canvas")
+    outputCanvas.width = OUTPUT_W
+    outputCanvas.height = OUTPUT_H
+    const outputCtx = outputCanvas.getContext("2d", { alpha: false })
+    if (!outputCtx || frames.length === 0) {
+      this.opts.onError?.("No camera frames were captured for the timelapse.")
       this.cleanup()
+      return
     }
+
+    const images = await Promise.all(frames.map((src) => this.loadImage(src)))
+    const stream = outputCanvas.captureStream(frameRate)
+    let recorder: MediaRecorder
+    try {
+      recorder = new MediaRecorder(stream, {
+        mimeType: pickMime(),
+        videoBitsPerSecond: 500_000,
+      })
+    } catch {
+      this.opts.onError?.("MediaRecorder not supported for this codec")
+      this.cleanup()
+      return
+    }
+
+    const chunks: Blob[] = []
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) chunks.push(event.data)
+    }
+    recorder.onstop = () => {
+      const blob = new Blob(chunks, { type: "video/webm" })
+      let thumbnail: Blob | null = null
+      try {
+        outputCanvas.toBlob((thumb) => {
+          thumbnail = thumb
+          this.opts.onFinalized?.({ blob, durationSec, thumbnail })
+          this.cleanup()
+        }, "image/webp", 0.7)
+      } catch {
+        this.opts.onFinalized?.({ blob, durationSec, thumbnail: null })
+        this.cleanup()
+      }
+    }
+
+    recorder.start()
+    for (let i = 0; i < outputFrameCount; i++) {
+      const sourceIndex = Math.min(images.length - 1, Math.floor((i / outputFrameCount) * images.length))
+      outputCtx.drawImage(images[sourceIndex], 0, 0, OUTPUT_W, OUTPUT_H)
+      await new Promise<void>((resolve) => setTimeout(resolve, 1000 / frameRate))
+    }
+    if (recorder.state !== "inactive") recorder.stop()
+  }
+
+  private loadImage(src: string): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+      const image = new Image()
+      image.onload = () => resolve(image)
+      image.onerror = reject
+      image.src = src
+    })
   }
 
   // ── Release all camera + media resources. ──
@@ -291,8 +316,7 @@ export class TimelapseCapture {
     this.video = null
     this.canvas = null
     this.ctx = null
-    this.recorder = null
-    this.chunks = []
+    this.frames = []
   }
 
   // Force-cleanup without finalizing (e.g. user cancels, or component unmounts

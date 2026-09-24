@@ -41,7 +41,8 @@ export function AuthView({ mode }: { mode: "login" | "signup" }) {
   const google = async () => {
     setBusy(true)
     try {
-      await loginWithGoogle()
+      localStorage.setItem("sankalp_oauth_next", next)
+      await loginWithGoogle(next)
       // OAuth redirect — page will reload on callback
     } catch (err: any) {
       toast.error(err.message || "Google sign-in failed")

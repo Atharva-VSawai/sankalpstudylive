@@ -7,14 +7,14 @@ import { useRouter } from "@/lib/router"
 // Auto-logout hook: watches for user activity (mouse/keyboard/scroll/touch)
 // and logs out after `timeoutMin` minutes of inactivity. Disabled when 0.
 // Also shows a warning toast before the timeout (60s before).
-export function useIdleAutoLogout(timeoutMin: number) {
+export function useIdleAutoLogout(timeoutMin: number, disabled = false) {
   const { me, logout } = useAuth()
   const { navigate } = useRouter()
   const lastActivity = useRef<number>(Date.now())
   const warned = useRef(false)
 
   useEffect(() => {
-    if (!me || !timeoutMin || timeoutMin <= 0) return
+    if (disabled || !me || !timeoutMin || timeoutMin <= 0) return
     const timeoutMs = timeoutMin * 60 * 1000
     const warningMs = timeoutMs - 60 * 1000
 
@@ -48,5 +48,5 @@ export function useIdleAutoLogout(timeoutMin: number) {
       events.forEach((e) => window.removeEventListener(e, onActivity))
       clearInterval(interval)
     }
-  }, [me, timeoutMin, logout, navigate])
+  }, [disabled, me, timeoutMin, logout, navigate])
 }

@@ -7,6 +7,7 @@ import { api, setToken, getToken, ApiError } from "@/lib/api-client"
 export type Me = {
   id: string
   email: string
+  hasPassword: boolean
   role: string
   status: string
   profile: {
@@ -42,7 +43,7 @@ type AuthState = {
   loading: boolean
   login: (email: string, password: string) => Promise<void>
   signup: (email: string, password: string) => Promise<void>
-  loginWithGoogle: () => Promise<void>
+  loginWithGoogle: (next?: string) => Promise<void>
   logout: () => void
   refresh: () => Promise<void>
 }
@@ -125,7 +126,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [supabase])
 
   useEffect(() => {
-    fetchMe()
+    let active = true
+
+    const restoreOAuthRoute = () => {
+      if (typeof window === "undefined") return
+      const next = localStorage.getItem("sankalp_oauth_next")
+      if (!next) return
+      localStorage.removeItem("sankalp_oauth_next")
+      if (next.startsWith("/")) window.location.hash = `#${next}`
+    }
+
+    const initializeAuth = async () => {
+      // PKCE returns an authorization code in the query string. Exchange it
+      // before the first /auth/me call so a first-time Google user is synced
+      // on the same callback instead of requiring a second sign-in attempt.
+      if (isSupabaseConfigured && typeof window !== "undefined") {
+        const code = new URLSearchParams(window.location.search).get("code")
+        if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code)
+          if (!error) {
+            const cleanUrl = `${window.location.pathname}${window.location.hash}`
+            window.history.replaceState(null, "", cleanUrl)
+          }
+        }
+      }
+      await fetchMe()
+      if (active) restoreOAuthRoute()
+    }
+
+    void initializeAuth()
 
     // Listen for auth state changes
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
@@ -133,6 +162,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (session?.access_token && !authActionInFlight.current) {
           setToken(session.access_token)
           await fetchMe()
+          restoreOAuthRoute()
         }
       } else if (event === "SIGNED_OUT") {
         setToken(null)
@@ -222,11 +252,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // in Supabase Dashboard → Authentication → Providers → Google. If Supabase
   // is not configured at all, or the Google provider is not enabled, shows a
   // clear actionable error instead of a generic crash.
-  const loginWithGoogle = useCallback(async () => {
+  const loginWithGoogle = useCallback(async (next = "/dashboard") => {
     if (!isSupabaseConfigured) {
       throw new Error("Google sign-in requires Supabase to be configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY to your environment, then enable the Google provider in Supabase Dashboard → Authentication → Providers → Google.")
     }
     try {
+      localStorage.setItem("sankalp_oauth_next", next)
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: { redirectTo: window.location.origin }

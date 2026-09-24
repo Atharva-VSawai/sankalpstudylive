@@ -36,6 +36,9 @@ export function createBrowserClient(): SupabaseClient {
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: true,
+      // Use the authorization-code flow so Supabase returns `?code=...`
+      // instead of putting OAuth tokens in the hash used by our client router.
+      flowType: "pkce",
     },
   })
 }

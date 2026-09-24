@@ -3,6 +3,9 @@ import { db } from "@/lib/db"
 export type MeResponse = {
   id: string
   email: string
+  // True only when the local account has a password hash. OAuth-only users
+  // must not be asked for a password they never created.
+  hasPassword: boolean
   role: string
   status: string
   profile: any
@@ -25,6 +28,7 @@ export async function loadMe(userId: string): Promise<MeResponse> {
   return {
     id: user.id,
     email: user.email,
+    hasPassword: Boolean(user.passwordHash),
     role: user.role,
     status: user.status,
     profile: user.profile,

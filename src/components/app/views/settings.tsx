@@ -326,7 +326,7 @@ function DangerZoneCard() {
   const [password, setPassword] = useState("")
   const [confirmText, setConfirmText] = useState("")
   const [busy, setBusy] = useState(false)
-  const hasPassword = Boolean(me?.email) // Local email/password accounts require confirmation.
+  const hasPassword = me?.hasPassword === true
 
   const del = useMutation({
     mutationFn: async () => {

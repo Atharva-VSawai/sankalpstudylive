@@ -12,8 +12,13 @@ export function Providers({ children }: { children: ReactNode }) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            staleTime: 30_000,
+            // Most app data is not second-by-second. Keeping it warm avoids
+            // refetching every time the hash-router swaps views while live
+            // surfaces opt into their own shorter refresh intervals.
+            staleTime: 120_000,
+            gcTime: 10 * 60_000,
             refetchOnWindowFocus: false,
+            refetchOnReconnect: false,
             retry: 1,
           },
         },

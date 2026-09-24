@@ -40,7 +40,6 @@ const AUTHED_PREFIXES = ["/dashboard", "/study", "/journal", "/communities", "/r
 export function AppShell() {
   const { route, navigate } = useRouter()
   const { me, loading } = useAuth()
-  useIdleAutoLogout(me?.profile?.sessionTimeoutMin ?? 0)
 
   const path = route.path === "/" ? "/" : `/${route.segments.join("/")}`
 
@@ -49,6 +48,9 @@ export function AppShell() {
   // Only individual room views (e.g. /rooms/abc123) are full-screen (no chrome).
   // The /rooms listing page uses the normal authenticated layout with sidebar.
   const isIndividualRoom = path.startsWith("/rooms/") && route.segments.length > 1
+  // An active room is a study activity, even when the user is not touching
+  // the mouse or keyboard. Never auto-logout during a live room/timelapse.
+  useIdleAutoLogout(me?.profile?.sessionTimeoutMin ?? 0, isIndividualRoom)
 
   // Redirect rules
   useEffect(() => {
