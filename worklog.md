@@ -2,6 +2,9 @@
 
 ## 2026-09-25
 
+- Removed the unverified “As featured in” media claim and publication names
+  from the landing page.
+
 - Fixed Google OAuth callback routing for both Log in and Sign up: first-time
   Google users now go directly to onboarding after the Supabase account is
   synced, while completed users still return to their original destination.
