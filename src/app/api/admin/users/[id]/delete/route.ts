@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server"
 import { db } from "@/lib/db"
 import { ok, unauthorized, forbidden, badRequest, getAuth, isAdmin } from "@/lib/api"
+import { deleteSupabaseAuthUser } from "@/lib/supabase"
 
 // DELETE /api/admin/users/[id]/delete — permanently delete user (admin only)
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -13,9 +14,16 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const body = await req.json().catch(() => ({}))
   if (body?.confirm !== "DELETE") return badRequest("Confirmation required: send { confirm: \"DELETE\" }", "CONFIRMATION_REQUIRED")
 
-  const user = await db.user.findUnique({ where: { id }, select: { id: true, email: true, role: true } })
+  const user = await db.user.findUnique({ where: { id }, select: { id: true, email: true, role: true, googleSub: true } })
   if (!user) return badRequest("User not found", "NOT_FOUND")
   if (user.role === "admin") return badRequest("Cannot delete admin accounts from the admin panel. Demote first.", "ADMIN_PROTECTED")
+
+  try {
+    await deleteSupabaseAuthUser(user.googleSub)
+  } catch (error) {
+    console.error("[admin/users/delete] Supabase Auth deletion failed:", error)
+    return badRequest("Could not delete the Supabase Auth account. Please try again or contact support.", "AUTH_PROVIDER_DELETE_FAILED")
+  }
 
   // Close owned rooms
   await db.room.updateMany({ where: { ownerId: id, isLive: true }, data: { isLive: false, isListed: false, endedAt: new Date() } })

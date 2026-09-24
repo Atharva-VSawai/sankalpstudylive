@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server"
 import { db } from "@/lib/db"
-import { ok, unauthorized, badRequest, getAuth } from "@/lib/api"
+import { ok, unauthorized, badRequest, getAuth, getSupabaseUser } from "@/lib/api"
 import { verifyPassword } from "@/lib/auth"
+import { deleteSupabaseAuthUser } from "@/lib/supabase"
 
 // POST /api/auth/delete
 // Permanently delete the authenticated user's account + all associated data.
@@ -31,6 +32,17 @@ export async function POST(req: NextRequest) {
     if (!verifyPassword(password, user.passwordHash)) {
       return badRequest("Incorrect password", "INVALID_PASSWORD")
     }
+  }
+
+  // Delete the external Supabase Auth identity before removing the local row.
+  // The verified token ID is preferred; googleSub also supports sessions that
+  // were issued before the current request (and local-token compatibility).
+  const supabaseUser = await getSupabaseUser(req)
+  try {
+    await deleteSupabaseAuthUser(supabaseUser?.id ?? user.googleSub)
+  } catch (error) {
+    console.error("[auth/delete] Supabase Auth deletion failed:", error)
+    return badRequest("Could not delete the Supabase Auth account. Please try again or contact support.", "AUTH_PROVIDER_DELETE_FAILED")
   }
 
   // Record an audit log entry BEFORE deletion (so it survives)

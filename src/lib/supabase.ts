@@ -61,6 +61,26 @@ export function createServerClient(): SupabaseClient {
   })
 }
 
+/**
+ * Permanently remove a user from Supabase Auth.
+ *
+ * This must only run on the server. Supabase requires the service-role key for
+ * auth.admin.deleteUser; never expose that key to browser code.
+ * Local-only accounts have no Supabase identity and are intentionally skipped.
+ */
+export async function deleteSupabaseAuthUser(supabaseUserId: string | null | undefined) {
+  if (!isSupabaseConfigured || !supabaseUserId) return { deleted: false, skipped: true }
+
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY is not configured")
+  }
+
+  const { error } = await createServerClient().auth.admin.deleteUser(supabaseUserId)
+  if (error) throw new Error(error.message || "Supabase Auth user deletion failed")
+
+  return { deleted: true, skipped: false }
+}
+
 export { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY }
 
 // ── No-op Supabase stub (used when Supabase is not configured) ──

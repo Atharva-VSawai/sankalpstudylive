@@ -492,3 +492,13 @@ Work Log:
 - Increased React Query cache retention for stable app data to avoid refetching on every hash-route navigation; live views keep their own shorter refresh intervals.
 - Profile now renders immediately from the already-loaded `/api/auth/me` profile while the richer `/api/profile` response loads memberships and full badge data in parallel.
 - Disabled reconnect-triggered refetches for this low-bandwidth deployment profile.
+
+---
+Task ID: ACCOUNT-DELETE-022
+Agent: Codex
+Task: Delete Supabase Auth users when deleting Sankalp accounts.
+
+Work Log:
+- Added a server-only Supabase Auth admin deletion helper using `SUPABASE_SERVICE_ROLE_KEY`.
+- Self-delete and admin-delete now remove the linked Supabase Auth identity before deleting the local Prisma user row.
+- If Supabase deletion fails, local data is retained and the API returns a retryable error instead of creating a partial deletion.
