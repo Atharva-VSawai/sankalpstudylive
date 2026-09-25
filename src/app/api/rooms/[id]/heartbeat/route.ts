@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server"
 import { db } from "@/lib/db"
 import { ok, unauthorized, notFound, forbidden, getAuth } from "@/lib/api"
-import { heartbeatLiveRoomSession, getEntitlement, entitlementToResponse, closeActiveLiveRoomSession } from "@/lib/entitlement"
+import { heartbeatLiveRoomSession, getEntitlement, entitlementToResponse, closeActiveLiveRoomSession, LIVE_ROOM_HEARTBEAT_TIMEOUT_MS } from "@/lib/entitlement"
 import { closeSession } from "@/app/api/study/sessions/route"
 
 // POST /api/rooms/[id]/heartbeat
@@ -21,22 +21,23 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const ctx = await getAuth(req)
   if (!ctx) return unauthorized()
   const { id } = await params
+  const body = await req.json().catch(() => ({}))
 
   // Confirm the room exists (lightweight check).
   const room = await db.room.findUnique({ where: { id }, select: { id: true } })
   if (!room) return notFound("Room not found")
 
   const allowance = await db.freeRoomAllowance.findUnique({ where: { userId: ctx.userId } })
-  if (!allowance?.activeSessionId || allowance.activeRoomId !== id) {
+  if (!allowance?.activeSessionId || allowance.activeRoomId !== id || body?.sessionId !== allowance.activeSessionId) {
     return forbidden("No active presence in this room.", "NOT_IN_ROOM")
   }
 
   // Finalize at the last observed server heartbeat after a network/browser
   // loss. Do not let the later request time inflate the study session.
   const timeoutAt = allowance.lastHeartbeatAt
-    ? new Date(allowance.lastHeartbeatAt.getTime() + 10_000)
+    ? new Date(allowance.lastHeartbeatAt.getTime() + LIVE_ROOM_HEARTBEAT_TIMEOUT_MS)
     : null
-  if (timeoutAt && timeoutAt.getTime() < Date.now() - 10_000) {
+  if (timeoutAt && timeoutAt.getTime() < Date.now()) {
     const user = await db.user.findUnique({ where: { id: ctx.userId }, select: { timezone: true } })
     await closeSession(allowance.activeSessionId, user?.timezone ?? "Asia/Kolkata", timeoutAt)
     await closeActiveLiveRoomSession(ctx.userId, timeoutAt)

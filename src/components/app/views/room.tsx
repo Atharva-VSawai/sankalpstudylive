@@ -303,7 +303,7 @@ export function RoomView({ id }: { id: string }) {
         // is the server-authoritative "00:00 closes the room" enforcement.
         heartbeatRef.current = setInterval(async () => {
           try {
-            const hb = await api.post<{ exhausted?: boolean } & Ent>("/rooms/" + id + "/heartbeat", {})
+            const hb = await api.post<{ exhausted?: boolean } & Ent>("/rooms/" + id + "/heartbeat", { sessionId: sessionIdRef.current })
             setEntitlement(hb)
             if (!hb.isPaid) {
               setDisplayedFreeSeconds(hb.remainingFreeSeconds)
@@ -356,7 +356,7 @@ export function RoomView({ id }: { id: string }) {
       if (sessionId) {
         api.post("/study/sessions/" + sessionId + "/stop").catch(() => {})
       }
-      api.post("/rooms/" + id + "/presence", { action: "leave" }).catch(() => {})
+      api.post("/rooms/" + id + "/presence", { action: "leave", sessionId }).catch(() => {})
     }
   }, [me, id])
 
@@ -374,7 +374,7 @@ export function RoomView({ id }: { id: string }) {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ action: "leave" }),
+        body: JSON.stringify({ action: "leave", sessionId: sessionIdRef.current }),
         keepalive: true,
       }).catch(() => {})
     }
@@ -576,7 +576,7 @@ export function RoomView({ id }: { id: string }) {
     if (heartbeatRef.current) clearInterval(heartbeatRef.current)
     if (qualityReassertRef.current) clearInterval(qualityReassertRef.current)
     // The presence leave endpoint removes this participant from the room count.
-    api.post("/rooms/" + id + "/presence", { action: "leave" }).catch(() => {})
+    api.post("/rooms/" + id + "/presence", { action: "leave", sessionId }).catch(() => {})
     qc.invalidateQueries({ queryKey: ["rooms"] })
     navigate("/rooms")
   }, [id, navigate, qc, finalizeTimelapseAndUpload])

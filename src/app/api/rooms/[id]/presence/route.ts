@@ -4,7 +4,7 @@ import { ok, notFound, unauthorized, forbidden, getAuth } from "@/lib/api"
 import { joinRoom, leaveRoom, listParticipants, heartbeat, reapStale, updateParticipant } from "@/lib/presence"
 import { isGeneralStudyRoom, isUnassignedNonGeneralRoom } from "@/lib/room-access"
 import { closeSession } from "@/app/api/study/sessions/route"
-import { beginLiveRoomSession, canJoinLiveRoom, closeActiveLiveRoomSession, entitlementToResponse, FreeAllowanceExhaustedError } from "@/lib/entitlement"
+import { beginLiveRoomSession, canJoinLiveRoom, closeActiveLiveRoomSession, entitlementToResponse, FreeAllowanceExhaustedError, LiveRoomAlreadyActiveError } from "@/lib/entitlement"
 
 // GET /api/rooms/[id]/presence
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -32,7 +32,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   if (body?.action === "leave") {
     const allowance = await db.freeRoomAllowance.findUnique({ where: { userId: ctx.userId } })
-    const activeId = allowance?.activeRoomId === id ? allowance.activeSessionId : null
+    // A delayed leave from an older tab must never close a newer session in
+    // the same room. New clients send the session id they are closing; old
+    // clients without it can still leave ephemeral presence, but heartbeat
+    // timeout is the safe fallback for allowance finalization.
+    const requestedSessionId = typeof body?.sessionId === "string" ? body.sessionId : null
+    const activeId = allowance?.activeRoomId === id && allowance.activeSessionId === requestedSessionId
+      ? requestedSessionId
+      : null
     if (activeId) {
       const user = await db.user.findUnique({ where: { id: ctx.userId }, select: { timezone: true } })
       await closeSession(activeId, user?.timezone ?? "Asia/Kolkata")
@@ -120,6 +127,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // session, preventing the final seconds from being bypassed by a race.
     entitlement = await beginLiveRoomSession(ctx.userId, session.id, id)
   } catch (error) {
+    if (error instanceof LiveRoomAlreadyActiveError) {
+      await db.studySession.deleteMany({ where: { id: session.id, endedAt: null } })
+      leaveRoom(id, ctx.userId)
+      await db.roomMember.updateMany({ where: { roomId: id, userId: ctx.userId, leftAt: null }, data: { leftAt: new Date() } })
+      return forbidden("This account is already connected to a live room.", "LIVE_ROOM_ALREADY_ACTIVE")
+    }
     if (!(error instanceof FreeAllowanceExhaustedError)) throw error
     await db.studySession.update({ where: { id: session.id }, data: { endedAt: new Date() } })
     leaveRoom(id, ctx.userId)

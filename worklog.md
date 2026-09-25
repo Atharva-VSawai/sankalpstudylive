@@ -2,6 +2,50 @@
 
 ## 2026-09-25
 
+- Hardened the server-authoritative 30-minute rolling free live-room allowance. The
+  per-user allowance row is now a conditional database admission lock: only one
+  concurrent tab/device can claim an active live-room session, and a competing
+  join receives `LIVE_ROOM_ALREADY_ACTIVE` instead of replacing the first session.
+  Window rollover no longer clears an active session; pre-window usage expires and
+  post-window usage is measured from the server reset boundary. Heartbeats now
+  update only the matching active room/session, preventing stale requests from
+  reviving a closed session.
+- Validation: `bunx tsc --noEmit`, `bun run lint`, and `bun test` all passed (6/6).
+- Final verification closed two admission races: `/rooms/[id]/token` now refuses
+  free users with an active session before issuing a LiveKit credential, and leave/
+  heartbeat requests must identify the current session id so stale tabs cannot
+  finalize or refresh a newer session. Authenticated HTTP tests covered persisted
+  five-minute usage, relogin, concurrent admission, exhaustion, General Study and
+  community rooms, 24-hour rollover, paid bypass, and solo Pomodoro non-consumption.
+- Confirmed with an authenticated temporary free account that a solo Pomodoro
+  session leaves `consumedFreeSeconds` unchanged (`0` before and after). Temporary
+  test users were deleted and the test room was restored after verification.
+- End-to-end near-cap verification found and fixed a heartbeat mismatch: the
+  client interval is 20 seconds but the server stale timeout was 10 seconds,
+  causing the second heartbeat to close a healthy room at 20 seconds. The
+  server now uses a 45-second heartbeat timeout/grace. Re-test: seeded 1770
+  seconds, joined General Study, heartbeats reached 0 with
+  `FREE_ALLOWANCE_EXHAUSTED`, and both General Study and a community token
+  request returned 403 with no token after leave/reload.
+- Ran the final real-browser concurrent-session verification with two tabs and
+  one temporary free account. Restored 20 free-user allowance rows to 1800
+  seconds without changing 9 paid users; Tab A connected to General Study and
+  displayed 30:00, while Tab B received HTTP 403 `LIVE_ROOM_ALREADY_ACTIVE`
+  with no token. Tab A stayed connected for 35 seconds with heartbeats, then
+  left; Tab B joined successfully afterward. Fresh reload and logout/login
+  preserved the remaining allowance. General and community token checks used
+  the same global remaining seconds, and solo Pomodoro left allowance usage
+  unchanged. Temporary user and room state were cleaned up.
+- Restored the two default rooms accidentally left with `isLive=false` during
+  test cleanup (General Study Focus Room and GATE Focus Room). Both now have
+  `isLive=true`, `isListed=true`, and no ended timestamp; authenticated token
+  verification returned HTTP 200 for General Study instead of `ROOM_ENDED`.
+- Repaired one stale free-user allowance left by an interrupted room exit:
+  `jiocloud011@gmail.com` had a 79-second-old heartbeat, no matching active
+  study session, and an orphaned `activeSessionId`. Finalized the server-capped
+  45 seconds, cleared the active fields, and confirmed zero active allowance
+  rows remain.
+
 - Removed the unverified “As featured in” media claim and publication names
   from the landing page.
 

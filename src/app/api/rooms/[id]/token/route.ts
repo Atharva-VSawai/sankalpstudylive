@@ -70,6 +70,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     )
   }
 
+  // A token is a usable room credential, so do not issue one to a free user
+  // while another live-room session is still active. Presence admission has
+  // the same database-backed guard, but this gate prevents token-before-
+  // admission from becoming a second-tab bypass.
+  if (!entitlement.isPaid && entitlement.hasActiveSession) {
+    return forbidden(
+      "This account is already connected to a live room.",
+      "LIVE_ROOM_ALREADY_ACTIVE",
+      entitlementToResponse(entitlement),
+    )
+  }
+
   // ── Validate LiveKit env vars ──
   const livekitUrl = process.env.LIVEKIT_URL
   const livekitApiKey = process.env.LIVEKIT_API_KEY

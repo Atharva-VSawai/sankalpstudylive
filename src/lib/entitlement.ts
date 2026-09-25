@@ -3,6 +3,10 @@ import { isPaidPlanActive } from "@/lib/pricing"
 import { FREE_ROOM_ALLOWANCE_SECONDS, FREE_ROOM_WINDOW_MS } from "@/lib/pricing"
 import { resolveVideoQualityPolicy, videoQualityPolicyToResponse, VideoQualityPolicyResponse } from "@/lib/video-quality"
 
+// The web client sends heartbeats every 20 seconds. Keep enough server-side
+// grace for normal request latency while still reaping a dropped connection.
+export const LIVE_ROOM_HEARTBEAT_TIMEOUT_MS = 45_000
+
 // ─────────────────────────────────────────────────────────────────────────────
 // FREE LIVE-ROOM ALLOWANCE — server-authoritative entitlement engine.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -53,21 +57,22 @@ async function getAllowanceRow(userId: string) {
   }
   // Reset the rolling 24h window if it has expired.
   if (now.getTime() - row.windowStartedAt.getTime() >= FREE_ROOM_WINDOW_MS) {
-    row = await db.freeRoomAllowance.update({
-      where: { userId },
+    // Do not clear an active session: that would make a still-connected tab
+    // appear to have left and would allow another tab to claim the slot. Move
+    // the active session's server start to the reset boundary so pre-window
+    // usage expires while post-window usage remains billable.
+    const resetAt = new Date(row.windowStartedAt.getTime() + FREE_ROOM_WINDOW_MS)
+    await db.freeRoomAllowance.updateMany({
+      where: { userId, windowStartedAt: row.windowStartedAt },
       data: {
-        windowStartedAt: now,
+        windowStartedAt: resetAt,
         consumedSeconds: 0,
         warningShownAt: null,
-        // Also clear any stale active session — a window reset implies the
-        // previous session can no longer accrue. If the client is still in a
-        // room, it will re-establish a session on the next token/heartbeat.
-        activeSessionStartedAt: null,
-        activeSessionId: null,
-        activeRoomId: null,
-        lastHeartbeatAt: null,
+        activeSessionStartedAt: row.activeSessionId ? resetAt : null,
+        lastHeartbeatAt: row.activeSessionId ? (row.lastHeartbeatAt && row.lastHeartbeatAt > resetAt ? row.lastHeartbeatAt : resetAt) : null,
       },
     })
+    row = (await db.freeRoomAllowance.findUnique({ where: { userId } })) ?? row
   }
   return row
 }
@@ -82,7 +87,7 @@ function liveElapsedSeconds(row: { activeSessionStartedAt: Date | null; lastHear
   // disconnected client doesn't keep accruing time after they drop. The clean
   // leave path will close the session with the real endedAt. This cap only
   // matters if the client never sent a leave (crash, network loss).
-  const cap = row.lastHeartbeatAt ? new Date(row.lastHeartbeatAt.getTime() + 10_000) : now
+  const cap = row.lastHeartbeatAt ? new Date(row.lastHeartbeatAt.getTime() + LIVE_ROOM_HEARTBEAT_TIMEOUT_MS) : now
   const end = cap.getTime() < now.getTime() ? cap : now
   return Math.max(0, Math.floor((end.getTime() - row.activeSessionStartedAt.getTime()) / 1000))
 }
@@ -134,7 +139,7 @@ async function reapStaleLiveRoomSession(userId: string): Promise<void> {
   })
   if (!row?.activeSessionId || !row.activeSessionStartedAt) return
   const timeoutAt = row.lastHeartbeatAt
-    ? new Date(row.lastHeartbeatAt.getTime() + 10_000)
+    ? new Date(row.lastHeartbeatAt.getTime() + LIVE_ROOM_HEARTBEAT_TIMEOUT_MS)
     : new Date()
   if (timeoutAt.getTime() >= Date.now()) return
   await closeActiveLiveRoomSession(userId, timeoutAt)
@@ -156,20 +161,27 @@ export async function beginLiveRoomSession(
   studySessionId: string,
   roomId: string
 ): Promise<Entitlement> {
-  // 1. Close any prior active session (accrue its time into consumedSeconds).
-  await closeActiveLiveRoomSession(userId)
-
-  // Re-check AFTER closing the previous session. Closing it may consume the
-  // final seconds, so a check performed only before the close is bypassable.
-  const { allowed } = await canJoinLiveRoom(userId)
-  if (!allowed) {
+  // Admission is deliberately a conditional database write. A read followed
+  // by an unconditional update lets two tabs observe the same allowance and
+  // both become active. Only one row exists per user, so this is the
+  // cross-tab/device lock as well as the source of truth.
+  await reapStaleLiveRoomSession(userId)
+  const current = await getAllowanceRow(userId)
+  const paid = isPaidPlanActive(await db.subscription.findUnique({ where: { userId } }))
+  if (current.activeSessionId) {
+    throw new LiveRoomAlreadyActiveError()
+  }
+  if (!paid && current.consumedSeconds >= FREE_ROOM_ALLOWANCE_SECONDS) {
     throw new FreeAllowanceExhaustedError()
   }
 
-  // 2. Mark the new active session.
   const now = new Date()
-  await db.freeRoomAllowance.update({
-    where: { userId },
+  const claimed = await db.freeRoomAllowance.updateMany({
+    where: {
+      userId,
+      activeSessionId: null,
+      ...(paid ? {} : { consumedSeconds: { lt: FREE_ROOM_ALLOWANCE_SECONDS } }),
+    },
     data: {
       activeSessionStartedAt: now,
       activeSessionId: studySessionId,
@@ -177,6 +189,11 @@ export async function beginLiveRoomSession(
       lastHeartbeatAt: now,
     },
   })
+  if (claimed.count !== 1) {
+    const latest = await getEntitlement(userId)
+    if (!latest.isPaid && !latest.canJoinLiveRoom) throw new FreeAllowanceExhaustedError()
+    throw new LiveRoomAlreadyActiveError()
+  }
   return getEntitlement(userId)
 }
 
@@ -185,6 +202,14 @@ export class FreeAllowanceExhaustedError extends Error {
   constructor() {
     super("Free live-room allowance exhausted")
     this.name = "FreeAllowanceExhaustedError"
+  }
+}
+
+export class LiveRoomAlreadyActiveError extends Error {
+  code = "LIVE_ROOM_ALREADY_ACTIVE"
+  constructor() {
+    super("This account already has an active live-room session")
+    this.name = "LiveRoomAlreadyActiveError"
   }
 }
 
@@ -229,9 +254,9 @@ export async function closeActiveLiveRoomSession(userId: string, endedAt?: Date)
 // returns the current entitlement so the client can detect exhaustion and
 // disconnect itself.
 export async function heartbeatLiveRoomSession(userId: string, roomId: string): Promise<Entitlement> {
-  await db.freeRoomAllowance.update({
-    where: { userId },
-    data: { lastHeartbeatAt: new Date(), activeRoomId: roomId },
+  await db.freeRoomAllowance.updateMany({
+    where: { userId, activeSessionId: { not: null }, activeRoomId: roomId },
+    data: { lastHeartbeatAt: new Date() },
   })
   return getEntitlement(userId)
 }
