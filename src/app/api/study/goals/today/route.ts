@@ -17,12 +17,30 @@ export async function GET(req: NextRequest) {
     update: {},
     include: { user: { include: { streak: true } } },
   })
+  // Daily progress is derived from finalized StudySession rows so live-room
+  // and solo sessions are combined exactly once. DailyGoal is a target/cache,
+  // not the source of truth for achieved study time.
+  const todaySessions = await db.studySession.findMany({
+    where: {
+      userId: ctx.userId,
+      endedAt: { not: null },
+      startedAt: { gte: new Date(date.getTime() - 86400000), lt: new Date(date.getTime() + 2 * 86400000) },
+    },
+    select: { startedAt: true, durationMin: true },
+  })
+  const achievedMin = todaySessions
+    .filter((session) => localDateForTimezone(session.startedAt, tz).getTime() === date.getTime())
+    .reduce((total, session) => total + session.durationMin, 0)
+  const completed = achievedMin >= goal.targetMin
+  if (goal.achievedMin !== achievedMin || goal.completed !== completed) {
+    await db.dailyGoal.update({ where: { id: goal.id }, data: { achievedMin, completed, completedAt: completed ? (goal.completedAt ?? new Date()) : null } })
+  }
   return ok({
     date,
     targetMin: goal.targetMin,
-    achievedMin: goal.achievedMin,
-    completed: goal.completed,
-    completedAt: goal.completedAt,
+    achievedMin,
+    completed,
+    completedAt: completed ? (goal.completedAt ?? new Date()) : null,
     streak: goal.user.streak
       ? { current: goal.user.streak.current, longest: goal.user.streak.longest, lastStudyDate: goal.user.streak.lastStudyDate }
       : null,

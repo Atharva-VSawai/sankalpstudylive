@@ -1,7 +1,7 @@
-import { NextRequest } from "next/server"
+import { after, NextRequest } from "next/server"
 import { db } from "@/lib/db"
 import { ok, unauthorized, notFound, badRequest, getAuth } from "@/lib/api"
-import { closeSession } from "@/app/api/study/sessions/route"
+import { applySessionEffects, closeSession } from "@/app/api/study/sessions/route"
 import { closeActiveLiveRoomSession } from "@/lib/entitlement"
 
 // POST /api/study/sessions/[id]/stop — stop a study session (server computes duration)
@@ -20,21 +20,35 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const session = await db.studySession.findUnique({ where: { id } })
   if (!session) return notFound("Session not found")
   if (session.userId !== ctx.userId) return badRequest("Not your session", "FORBIDDEN")
-  if (session.endedAt) return ok({ alreadyStopped: true, durationMin: session.durationMin, xpEarned: session.xpEarned })
-
-  const user = await db.user.findUnique({ where: { id: ctx.userId } })
-  const result = await closeSession(id, user?.timezone ?? "Asia/Kolkata")
-
-  // ── Accrue live-room time into the global free allowance ──
-  // Only accrue if this session was the active live-room session. If the user
-  // already started a new session elsewhere, the prior one was already accrued
-  // by beginLiveRoomSession. closeActiveLiveRoomSession is a no-op in that case
-  // (it only closes the session whose activeSessionId matches, which we verify
-  // by checking the row state).
-  const allowance = await db.freeRoomAllowance.findUnique({ where: { userId: ctx.userId }, select: { activeSessionId: true } })
-  if (session.roomId && allowance?.activeSessionId === session.id) {
-    await closeActiveLiveRoomSession(ctx.userId)
+  if (session.endedAt) {
+    after(async () => {
+      const allowance = await db.freeRoomAllowance.findUnique({ where: { userId: ctx.userId }, select: { activeSessionId: true } })
+      if (session.roomId && allowance?.activeSessionId === session.id) await closeActiveLiveRoomSession(ctx.userId)
+    })
+    return ok({ alreadyStopped: true, sessionId: session.id, durationMin: session.durationMin, xpEarned: session.xpEarned })
   }
 
-  return ok({ stopped: true, ...(result as any) })
+  // Only the StudySession claim is awaited. The user timezone and all
+  // secondary writes happen after the response, so the exit interaction is
+  // not held behind profile/streak/badge/allowance database round trips.
+  const result = await closeSession(id, "Asia/Kolkata", undefined, { deferSideEffects: true })
+
+  // The StudySession claim above is the only data required to show the
+  // summary. Run XP/streak/goal/badge analytics after the response is ready,
+  // so leaving a room is not held behind those unrelated writes.
+  after(async () => {
+    // Accrue live-room time only when this exact session is still active in
+    // the allowance row. This preserves stale-leave protection.
+    const allowance = await db.freeRoomAllowance.findUnique({ where: { userId: ctx.userId }, select: { activeSessionId: true } })
+    if (session.roomId && allowance?.activeSessionId === session.id) await closeActiveLiveRoomSession(ctx.userId)
+
+    if (result && (result as any).effectsPending) {
+      const finalized = await db.studySession.findUnique({ where: { id } })
+      if (!finalized || finalized.durationMin < 1) return
+      const user = await db.user.findUnique({ where: { id: ctx.userId }, select: { timezone: true } })
+      await applySessionEffects(finalized, user?.timezone ?? "Asia/Kolkata", finalized.durationMin, finalized.xpEarned)
+    }
+  })
+
+  return ok({ stopped: true, sessionId: session.id, ...(result as any) })
 }

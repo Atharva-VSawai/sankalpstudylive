@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
   const nextMonday = new Date(thisMonday.getTime() + 7 * 86400000)
 
   const sessions = await db.studySession.findMany({
-    where: { userId: ctx.userId, endedAt: { not: null }, startedAt: { gte: lastMonday, lt: nextMonday } },
+    where: { userId: ctx.userId, endedAt: { not: null }, startedAt: { gte: new Date(lastMonday.getTime() - 86400000), lt: new Date(nextMonday.getTime() + 86400000) } },
     select: { startedAt: true, durationMin: true, xpEarned: true, mode: true },
   })
 
@@ -84,6 +84,8 @@ export async function GET(req: NextRequest) {
     bestDay: bestDay ? { day: bestDay.day, date: bestDay.date, minutes: bestDay.minutes, sessions: bestDay.sessions } : null,
     today: todayBucket ? { minutes: todayBucket.minutes, sessions: todayBucket.sessions } : { minutes: 0, sessions: 0 },
     dailyGoalMin: goal?.targetMin ?? 360,
-    goalCompletedToday: goal?.completed ?? false,
+    // Completion is derived from the same finalized-session total returned
+    // above, rather than trusting a stale DailyGoal counter.
+    goalCompletedToday: Boolean(goal && todayBucket && todayBucket.minutes >= goal.targetMin),
   })
 }

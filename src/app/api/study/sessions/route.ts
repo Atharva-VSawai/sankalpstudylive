@@ -119,7 +119,7 @@ function safeParse(s: string): string[] {
 }
 
 // Internal helper (also used by stop route) — closes a session, computes duration server-side.
-export async function closeSession(sessionId: string, timezone: string, requestedEndedAt?: Date) {
+export async function closeSession(sessionId: string, timezone: string, requestedEndedAt?: Date, options?: { deferSideEffects?: boolean }) {
   const session = await db.studySession.findUnique({ where: { id: sessionId } })
   if (!session || session.endedAt) return null
   const endedAt = requestedEndedAt && requestedEndedAt.getTime() < Date.now() ? requestedEndedAt : new Date()
@@ -128,9 +128,15 @@ export async function closeSession(sessionId: string, timezone: string, requeste
     Math.max(0, Math.round((endedAt.getTime() - session.startedAt.getTime()) / 60000))
   )
   if (durationMin < 1) {
-    // Discard sub-minute sessions
-    const removed = await db.studySession.deleteMany({ where: { id: sessionId, endedAt: null } })
-    if (removed.count === 0) return { durationMin: 0, xpEarned: 0, awardedBadges: [] }
+    // Keep very short sessions so End Session can navigate immediately to a
+    // valid server-owned summary. They earn no XP and do not advance goals or
+    // streaks, but deleting the row would leave the client with a summary ID
+    // that can never be loaded.
+    const claimed = await db.studySession.updateMany({
+      where: { id: sessionId, endedAt: null },
+      data: { endedAt, activeKey: null, durationMin: 0, xpEarned: 0, isVerified: true },
+    })
+    if (claimed.count === 0) return { durationMin: 0, xpEarned: 0, awardedBadges: [] }
     return { durationMin: 0, xpEarned: 0, awardedBadges: [] }
   }
   const xp = durationMin * XP_PER_MINUTE
@@ -139,6 +145,17 @@ export async function closeSession(sessionId: string, timezone: string, requeste
     data: { endedAt, activeKey: null, durationMin, xpEarned: xp, isVerified: true },
   })
   if (claimed.count === 0) return { durationMin: session.durationMin, xpEarned: session.xpEarned, awardedBadges: [] }
+  if (options?.deferSideEffects) {
+    return { durationMin, xpEarned: xp, effectsPending: true }
+  }
+
+  return applySessionEffects(session, timezone, durationMin, xp)
+}
+
+// XP, streak, goal, badges, and analytics are intentionally separate from the
+// authoritative StudySession claim. This lets the room exit response return as
+// soon as the finalized row and live allowance are persisted.
+export async function applySessionEffects(session: any, timezone: string, durationMin: number, xp: number) {
   const { level, oldLevel, leveledUp } = await awardXp(session.userId, durationMin)
   const streak = await bumpStreak(session.userId, timezone)
   const goal = await bumpDailyGoal(session.userId, timezone, durationMin)
@@ -146,7 +163,7 @@ export async function closeSession(sessionId: string, timezone: string, requeste
     communityId: session.communityId,
     roomId: session.roomId,
   })
-  await trackEvent(session.userId, "study_completed", { sessionId, durationMin, xp })
+  await trackEvent(session.userId, "study_completed", { sessionId: session.id, durationMin, xp })
   await trackEvent(session.userId, "study_duration", { durationMin })
   if (goal.completed) await trackEvent(session.userId, "goal_completed", { date: goal.date })
   if (streak.current > 0 && streak.current % 7 === 0) await trackEvent(session.userId, "streak_milestone", { streak: streak.current })

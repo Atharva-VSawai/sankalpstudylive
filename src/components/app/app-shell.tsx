@@ -23,6 +23,7 @@ import { RoomsView } from "@/components/app/views/rooms"
 import { RoomView } from "@/components/app/views/room"
 import { DashboardView } from "@/components/app/views/dashboard"
 import { StudyView } from "@/components/app/views/study"
+import { SessionSummaryView } from "@/components/app/views/session-summary"
 import { JournalView } from "@/components/app/views/journal"
 import { LeaderboardView } from "@/components/app/views/leaderboard"
 import { FriendsView } from "@/components/app/views/friends"
@@ -35,7 +36,7 @@ import { PaywallView } from "@/components/app/views/paywall"
 import { LegalView } from "@/components/app/views/legal"
 import { AdminView } from "@/components/app/views/admin"
 
-const AUTHED_PREFIXES = ["/dashboard", "/study", "/journal", "/communities", "/rooms", "/leaderboard", "/friends", "/profile", "/notifications", "/settings", "/paywall", "/onboarding", "/admin"]
+const AUTHED_PREFIXES = ["/dashboard", "/study", "/session-summary", "/journal", "/communities", "/rooms", "/leaderboard", "/friends", "/profile", "/notifications", "/settings", "/paywall", "/onboarding", "/admin"]
 
 export function AppShell() {
   const { route, navigate } = useRouter()
@@ -168,6 +169,7 @@ function renderView(path: string, segments: string[], me: any): React.ReactNode 
   if (path === "/onboarding") return <OnboardingView />
   if (path === "/dashboard") return <DashboardView />
   if (path === "/study") return <StudyView />
+  if (segments[0] === "session-summary" && segments[1]) return <SessionSummaryView sessionId={segments[1]} />
   if (path === "/journal") return <JournalView />
   if (path === "/leaderboard") return <LeaderboardView />
   if (path === "/friends") return <FriendsView />

@@ -50,6 +50,8 @@ export function RoomView({ id }: { id: string }) {
   const [connectionState, setConnectionState] = useState<ConnectionState>(ConnectionState.Disconnected)
   const [camOn, setCamOn] = useState(false)
   const [left, setLeft] = useState(false)
+  const [finalizing, setFinalizing] = useState(false)
+  const [finalizeError, setFinalizeError] = useState<string | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [showAmbient, setShowAmbient] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -557,29 +559,46 @@ export function RoomView({ id }: { id: string }) {
 
   // ── Leave room ──
   const leave = useCallback(async () => {
-    if (cleanupStartedRef.current) return
-    cleanupStartedRef.current = true
+    if (cleanupStartedRef.current || finalizing) return
     const sessionId = sessionIdRef.current
-    sessionIdRef.current = null
-    // Create the timelapse while the session row still exists. The stop route
-    // intentionally removes sub-minute sessions, so stopping first can make
-    // /timelapses/create reject a perfectly valid short recording.
-    // finalizeTimelapseAndUpload also waits for encoding + upload before this
-    // view navigates away.
-    await finalizeTimelapseAndUpload()
-    if (sessionId) await api.post("/study/sessions/" + sessionId + "/stop").catch(() => {})
-    setLeft(true)
-    if (lkRoomRef.current) {
-      lkRoomRef.current.disconnect()
-      lkRoomRef.current = null
+    if (!sessionId) {
+      setFinalizeError("There is no active study session to finalize. Please reload and try again.")
+      return
     }
-    if (heartbeatRef.current) clearInterval(heartbeatRef.current)
-    if (qualityReassertRef.current) clearInterval(qualityReassertRef.current)
-    // The presence leave endpoint removes this participant from the room count.
-    api.post("/rooms/" + id + "/presence", { action: "leave", sessionId }).catch(() => {})
-    qc.invalidateQueries({ queryKey: ["rooms"] })
-    navigate("/rooms")
-  }, [id, navigate, qc, finalizeTimelapseAndUpload])
+    cleanupStartedRef.current = true
+    setFinalizing(true)
+    setFinalizeError(null)
+    try {
+      // Timelapse encoding/upload is deliberately detached from the exit path.
+      // Session finalization is the only prerequisite for the summary and
+      // continues in the background while the summary page loads.
+      void finalizeTimelapseAndUpload()
+      const stopRequest = api.post("/study/sessions/" + sessionId + "/stop")
+      sessionIdRef.current = null
+      setLeft(true)
+      if (lkRoomRef.current) {
+        lkRoomRef.current.disconnect()
+        lkRoomRef.current = null
+      }
+      if (heartbeatRef.current) clearInterval(heartbeatRef.current)
+      if (qualityReassertRef.current) clearInterval(qualityReassertRef.current)
+      // Keep presence cleanup tied to the same server finalization request,
+      // but do not hold the user in the room while either request completes.
+      void stopRequest
+        .then(() => api.post("/rooms/" + id + "/presence", { action: "leave", sessionId }))
+        .catch(() => {})
+      qc.invalidateQueries({ queryKey: ["rooms"] })
+      navigate("/session-summary/" + sessionId)
+    } catch (e: any) {
+      // Keep the session id so retry can safely finish the same row. The stop
+      // endpoint is idempotent and prevents duplicate XP/time accounting.
+      cleanupStartedRef.current = false
+      setFinalizeError(e?.message || "Could not save this session. Please retry.")
+      toast.error(e?.message || "Could not save this session. Please retry.")
+    } finally {
+      setFinalizing(false)
+    }
+  }, [id, navigate, qc, finalizeTimelapseAndUpload, finalizing])
 
   const canEndRoom = room?.owner?.id === me?.id || me?.role === "admin" || me?.role === "moderator"
   const endRoom = useCallback(() => {
@@ -811,8 +830,9 @@ export function RoomView({ id }: { id: string }) {
           <ControlBtn active={camOn} onClick={toggleCam} on={<Video className="size-5" />} off={<VideoOff className="size-5" />} label={camOn ? "Stop video" : "Camera"} />
           <ControlBtn active={timelapseRecording} onClick={toggleTimelapse} on={<Film className="size-5" />} off={<Film className="size-5" />} label={timelapseRecording ? "Stop timelapse" : "Timelapse"} />
           <ControlBtn active={showAmbient} onClick={() => setShowAmbient(!showAmbient)} on={<Headphones className="size-5" />} off={<Headphones className="size-5" />} label="Ambient" />
-          <button onClick={leave} className="inline-flex items-center justify-center size-11 rounded-full bg-destructive text-white hover:bg-destructive/90 transition-colors" title="Leave room"><PhoneOff className="size-5" /></button>
+          <button onClick={leave} disabled={finalizing} className="inline-flex items-center justify-center size-11 rounded-full bg-destructive text-white hover:bg-destructive/90 transition-colors disabled:cursor-wait disabled:opacity-60" title="End Session" aria-label="End Session"><PhoneOff className="size-5" /></button>
         </div>
+        {(finalizing || finalizeError) && <div className="flex flex-col items-center gap-2 border-t px-4 py-3 text-center text-sm"><div className="flex items-center gap-2 text-muted-foreground">{finalizing && <Loader2 className="size-4 animate-spin" />}{finalizing ? "Saving your session…" : "Your session was not saved yet."}</div>{finalizeError && <><p className="text-destructive">{finalizeError}</p><button onClick={leave} className="rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-accent">Retry finalization</button></>}</div>}
       </div>
 
       {/* ── Ambient sounds popover ── */}

@@ -15,5 +15,17 @@ export async function GET(req: NextRequest) {
     where: { userId: ctx.userId, date: { gte: start } },
     orderBy: { date: "asc" },
   })
-  return ok({ goals })
+  const sessions = await db.studySession.findMany({
+    where: { userId: ctx.userId, endedAt: { not: null }, startedAt: { gte: new Date(start.getTime() - 86400000), lt: new Date(today.getTime() + 2 * 86400000) } },
+    select: { startedAt: true, durationMin: true },
+  })
+  const totals = new Map<string, number>()
+  for (const session of sessions) {
+    const key = localDateForTimezone(session.startedAt, tz).toISOString().slice(0, 10)
+    totals.set(key, (totals.get(key) ?? 0) + session.durationMin)
+  }
+  return ok({ goals: goals.map((goal) => {
+    const achievedMin = totals.get(goal.date.toISOString().slice(0, 10)) ?? 0
+    return { ...goal, achievedMin, completed: achievedMin >= goal.targetMin }
+  }) })
 }

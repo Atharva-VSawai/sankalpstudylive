@@ -20,10 +20,10 @@ export type MeResponse = {
 }
 
 export async function loadMe(userId: string): Promise<MeResponse> {
-  const user = await db.user.findUnique({
-    where: { id: userId },
-    include: { profile: true, streak: true },
-  })
+  const [user, studyTotal] = await Promise.all([
+    db.user.findUnique({ where: { id: userId }, include: { profile: true, streak: true } }),
+    db.studySession.aggregate({ where: { userId, endedAt: { not: null } }, _sum: { durationMin: true } }),
+  ])
   if (!user || !user.profile) throw new Error("user_missing")
   return {
     id: user.id,
@@ -31,7 +31,9 @@ export async function loadMe(userId: string): Promise<MeResponse> {
     hasPassword: Boolean(user.passwordHash),
     role: user.role,
     status: user.status,
-    profile: user.profile,
+    // StudySession is the authoritative lifetime study total. The profile
+    // counter is retained for compatibility but may contain legacy drift.
+    profile: { ...user.profile, totalMinutes: studyTotal._sum.durationMin ?? 0 },
     streak: user.streak
       ? {
           current: user.streak.current,

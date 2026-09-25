@@ -39,11 +39,21 @@ export async function GET(req: NextRequest) {
   }
 
   const sessions = await db.studySession.findMany({
-    where,
+    where: { ...where, endedAt: { not: null } },
     select: { userId: true, durationMin: true, xpEarned: true },
   })
 
   const agg = new Map<string, { minutes: number; xp: number }>()
+  // Demo weekly snapshots are database-backed fixtures for local/demo
+  // environments. They never affect personal study totals, goals, XP, or
+  // streaks; real finalized sessions are added on top dynamically.
+  if (scope === "global" && period === "weekly") {
+    const demoRows = await db.leaderboardSnapshot.findMany({
+      where: { scope: "global_demo", period: "weekly" },
+      select: { userId: true, minutes: true, xp: true },
+    })
+    for (const row of demoRows) agg.set(row.userId, { minutes: row.minutes, xp: row.xp })
+  }
   for (const s of sessions) {
     const cur = agg.get(s.userId) ?? { minutes: 0, xp: 0 }
     cur.minutes += s.durationMin
