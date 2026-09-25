@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { verifyWebhookSignature } from "@/lib/razorpay"
 import { PLANS, PlanId } from "@/lib/pricing"
+import { scheduleFreeAllowanceAfterPaidPlan } from "@/lib/entitlement"
 
 // POST /api/webhooks/razorpay
 // Razorpay webhook handler. No user auth — verifies X-Razorpay-Signature
@@ -114,6 +115,10 @@ export async function POST(req: NextRequest) {
       },
     })
 
+    if (planId === "focus_pass") {
+      await scheduleFreeAllowanceAfterPaidPlan(internalPayment.userId, expiresAt)
+    }
+
     await db.auditLog.create({
       data: {
         actorId: null,
@@ -133,9 +138,22 @@ export async function POST(req: NextRequest) {
     if (!subData) return NextResponse.json({ error: "No subscription data" }, { status: 400 })
 
     const razorpaySubId = subData.id
-    const internalSub = await db.subscription.findFirst({
+    let internalSub = await db.subscription.findFirst({
       where: { razorpaySubscriptionId: razorpaySubId },
     })
+    // A pending recurring checkout must not overwrite an active one-time
+    // entitlement. In that case the Razorpay ID lives on Payment until the
+    // provider confirms it, so resolve the user's existing subscription via
+    // the payment row and activate it only now.
+    if (!internalSub) {
+      const pendingPayment = await db.payment.findFirst({
+        where: { razorpaySubscriptionId: razorpaySubId },
+        select: { userId: true },
+      })
+      if (pendingPayment) {
+        internalSub = await db.subscription.findUnique({ where: { userId: pendingPayment.userId } })
+      }
+    }
     if (!internalSub) {
       console.error(`[webhook] no internal subscription for: ${razorpaySubId}`)
       return NextResponse.json({ error: "Subscription not found" }, { status: 404 })
@@ -151,6 +169,7 @@ export async function POST(req: NextRequest) {
         status: "active",
         expiresAt,
         renewsAt: expiresAt,
+        razorpaySubscriptionId: razorpaySubId,
       },
     })
 
@@ -187,6 +206,17 @@ export async function POST(req: NextRequest) {
       where: { razorpaySubscriptionId: razorpaySubId },
     })
     if (!internalSub) {
+      // A checkout can be canceled while another plan is still active; there
+      // is no subscription-row mutation to perform in that case. The payment
+      // row is still enough to make this webhook idempotently successful.
+      const payment = await db.payment.findFirst({
+        where: { razorpaySubscriptionId: razorpaySubId },
+        select: { id: true },
+      })
+      if (payment) {
+        await db.payment.update({ where: { id: payment.id }, data: { webhookEventId } })
+        return NextResponse.json({ processed: true })
+      }
       return NextResponse.json({ error: "Subscription not found" }, { status: 404 })
     }
 

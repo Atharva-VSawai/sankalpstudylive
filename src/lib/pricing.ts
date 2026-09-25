@@ -45,7 +45,8 @@ export function isPaidPlanActive(sub: { plan: string; status: string; expiresAt:
   if (!isPaidPlan(sub.plan)) return false
   if (sub.expiresAt) {
     const exp = new Date(sub.expiresAt).getTime()
-    if (exp < Date.now()) return false
+    // Expiry is strict: access ends at the exact entitlement end instant.
+    if (exp <= Date.now()) return false
   }
   return true
 }

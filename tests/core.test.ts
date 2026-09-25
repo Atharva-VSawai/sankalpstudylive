@@ -26,6 +26,10 @@ describe("pricing and entitlement invariants", () => {
     const expiry = computeExpiry("focus_pass")!.getTime()
     expect(expiry).toBeGreaterThanOrEqual(before + PLANS.focus_pass.durationMs)
   })
+
+  test("paid access ends at the exact expiry instant", () => {
+    expect(isPaidPlanActive({ plan: "focus_pass", status: "active", expiresAt: new Date(Date.now()) })).toBe(false)
+  })
 })
 
 describe("room classification invariants", () => {

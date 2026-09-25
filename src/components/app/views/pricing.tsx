@@ -110,8 +110,11 @@ export function PricingView() {
     enabled: !!me,
   })
 
-  const currentPlan = subData?.subscription?.plan ?? "free"
   const hasPaidAccess = subData?.hasPaidAccess ?? false
+  // Only an active, server-authorized entitlement is a current plan. The raw
+  // subscription plan may be expired or pending and must not hide the free
+  // allowance or make an inactive plan look active.
+  const currentPlan = hasPaidAccess ? (subData?.subscription?.plan ?? "free") : "free"
 
   // ── One-time payment flow (Focus Pass, 6-Month, Yearly) ──
   const purchaseOneTime = async (planCode: string) => {

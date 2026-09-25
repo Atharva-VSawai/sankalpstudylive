@@ -94,10 +94,23 @@ function liveElapsedSeconds(row: { activeSessionStartedAt: Date | null; lastHear
 
 // ── Public: read the user's full entitlement. Never throws. ──
 export async function getEntitlement(userId: string): Promise<Entitlement> {
-  const [sub, row] = await Promise.all([
+  const [sub, initialRow] = await Promise.all([
     db.subscription.findUnique({ where: { userId } }),
     getAllowanceRow(userId),
   ])
+  let row = initialRow
+  // Backfill the post-Focus-Pass free window for entitlements created before
+  // this scheduling rule was deployed. The condition is idempotent because
+  // the allowance window is moved to the pass expiry timestamp once.
+  if (
+    sub?.plan === "focus_pass" &&
+    sub.expiresAt &&
+    Date.now() >= sub.expiresAt.getTime() &&
+    row.windowStartedAt.getTime() < sub.expiresAt.getTime()
+  ) {
+    await scheduleFreeAllowanceAfterPaidPlan(userId, sub.expiresAt)
+    row = await getAllowanceRow(userId)
+  }
   const isPaid = isPaidPlanActive(sub)
   const live = liveElapsedSeconds(row)
   const consumed = row.consumedSeconds + live
@@ -119,6 +132,33 @@ export async function getEntitlement(userId: string): Promise<Entitlement> {
     warningShown: !!row.warningShownAt,
     videoQuality,
   }
+}
+
+// Start a fresh free allowance at the exact moment a paid entitlement ends.
+// This keeps free access from being consumed during a paid pass while making
+// the post-pass 30-minute window deterministic and server-authoritative.
+export async function scheduleFreeAllowanceAfterPaidPlan(userId: string, startsAt: Date): Promise<void> {
+  const existing = await db.freeRoomAllowance.findUnique({
+    where: { userId },
+    select: { activeSessionId: true },
+  })
+  await db.freeRoomAllowance.upsert({
+    where: { userId },
+    create: {
+      userId,
+      windowStartedAt: startsAt,
+      consumedSeconds: 0,
+    },
+    update: {
+      windowStartedAt: startsAt,
+      consumedSeconds: 0,
+      warningShownAt: null,
+      // If the user bought the pass while in a room, bill only the portion
+      // after the pass expires when the free window begins.
+      activeSessionStartedAt: existing?.activeSessionId ? startsAt : null,
+      lastHeartbeatAt: existing?.activeSessionId ? new Date() : null,
+    },
+  })
 }
 
 // ── Public: can the user join a live room right now? (server-authoritative) ──

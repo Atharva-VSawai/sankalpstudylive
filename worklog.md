@@ -2,6 +2,23 @@
 
 ## 2026-09-25
 
+- Fixed paid-plan display and checkout entitlement handling. Pending Monthly
+  checkout creation no longer overwrites an active Focus Pass/paid
+  subscription before Razorpay confirmation. Pricing now marks a plan current
+  only when the server reports an active paid entitlement, so expired or
+  pending records correctly show free access and the free-minute counter.
+- Production verification for `atharvasawai38`: the captured Focus Pass ended
+  at 2026-09-25 06:06 UTC; at verification time (08:01 UTC), the 28-minute
+  free balance was expected because the pass had expired. Pending Monthly and
+  6-month payment rows were present but unconfirmed.
+- Updated recurring-payment webhooks to resolve pending Razorpay subscriptions
+  through their Payment row and avoid canceling an unrelated active plan.
+- Made Focus Pass expiry strict at exactly 24 hours from entitlement
+  activation. Its fresh 30-minute free allowance is scheduled to begin at
+  the expiry timestamp, so the free account starts only after the pass ends.
+- Added an idempotent entitlement-read backfill for older expired Focus Pass
+  records so their post-pass free window starts at the recorded expiry too.
+
 - Hardened the server-authoritative 30-minute rolling free live-room allowance. The
   per-user allowance row is now a conditional database admission lock: only one
   concurrent tab/device can claim an active live-room session, and a competing

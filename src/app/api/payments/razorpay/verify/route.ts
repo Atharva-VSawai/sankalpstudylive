@@ -4,6 +4,7 @@ import { ok, unauthorized, badRequest, getAuth } from "@/lib/api"
 import { verifyPaymentSignature, fetchPayment, fetchOrder } from "@/lib/razorpay"
 import { PLANS, PlanId, computeExpiry } from "@/lib/pricing"
 import { rateLimit } from "@/lib/ratelimit"
+import { scheduleFreeAllowanceAfterPaidPlan } from "@/lib/entitlement"
 
 // POST /api/payments/razorpay/verify
 // Verifies a one-time payment (Focus Pass, 6-Month, Yearly) after Razorpay Checkout.
@@ -134,6 +135,10 @@ export async function POST(req: NextRequest) {
         expiresAt,
       },
     })
+
+    if (planId === "focus_pass") {
+      await scheduleFreeAllowanceAfterPaidPlan(ctx.userId, expiresAt)
+    }
 
     // Audit log
     await db.auditLog.create({

@@ -54,21 +54,28 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    // Update the Subscription record to pending
-    await db.subscription.upsert({
-      where: { userId: ctx.userId },
-      create: {
-        userId: ctx.userId,
-        plan: "monthly",
-        status: "pending",
-        razorpaySubscriptionId: sub.subscriptionId,
-      },
-      update: {
-        plan: "monthly",
-        status: "pending",
-        razorpaySubscriptionId: sub.subscriptionId,
-      },
-    })
+    // Keep an existing active entitlement authoritative while checkout is
+    // pending. Overwriting an active Focus Pass here would make the room
+    // entitlement engine fall back to the free allowance before Razorpay has
+    // confirmed the new subscription. A pending row is only created when the
+    // user has no active paid access to preserve the one-row schema.
+    const latest = await db.subscription.findUnique({ where: { userId: ctx.userId } })
+    if (!latest || !isPaidPlanActive(latest)) {
+      await db.subscription.upsert({
+        where: { userId: ctx.userId },
+        create: {
+          userId: ctx.userId,
+          plan: "monthly",
+          status: "pending",
+          razorpaySubscriptionId: sub.subscriptionId,
+        },
+        update: {
+          plan: "monthly",
+          status: "pending",
+          razorpaySubscriptionId: sub.subscriptionId,
+        },
+      })
+    }
 
     // Return ONLY safe information for Razorpay Checkout
     return ok({
