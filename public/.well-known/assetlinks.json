@@ -1,0 +1,13 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "in.sankalpstudylive.app",
+      "sha256_cert_fingerprints": [
+        "F5:E7:64:04:85:50:DB:A0:85:A2:82:74:BB:E2:33:95:5B:D1:F5:04:9F:C4:F9:95:65:6E:C7:74:C8:A6:86:92",
+        "BF:68:A3:7D:0E:15:2C:24:1D:C3:66:E5:95:3F:BE:44:EF:0B:0E:65:C0:92:45:59:48:7A:D2:5D:2E:46:0F:B2"
+      ]
+    }
+  }
+]
